@@ -2,8 +2,13 @@
 
 const GreenApiMapper = require('../src/lib/GreenApiMapper');
 
-function makeMapper() {
-  return new GreenApiMapper({ idInstance: 1101000001, getWid: () => '7999@c.us' });
+function makeMapper(opts = {}) {
+  return new GreenApiMapper({
+    idInstance: 1101000001,
+    apiToken: 'testtoken',
+    getWid: () => '7999@c.us',
+    mediaBaseUrl: opts.mediaBaseUrl || '',
+  });
 }
 
 describe('GreenApiMapper.toIncomingMessageReceived', () => {
@@ -60,6 +65,32 @@ describe('GreenApiMapper.toIncomingMessageReceived', () => {
     expect(out.messageData.typeMessage).toBe('imageMessage');
     expect(out.messageData.imageMessageData.caption).toBe('photo caption');
     expect(out.messageData.imageMessageData.mimeType).toBe('image/jpeg');
+  });
+
+  it('builds downloadUrl when mediaBaseUrl is set', () => {
+    const msg = {
+      id: { _serialized: 'true_X' },
+      from: '7@c.us',
+      type: 'image',
+      timestamp: 1,
+      _data: { mimetype: 'image/jpeg' },
+    };
+    const out = makeMapper({ mediaBaseUrl: 'https://api.wa.iqteco.com' }).toIncomingMessageReceived(msg);
+    expect(out.messageData.imageMessageData.downloadUrl)
+      .toBe('https://api.wa.iqteco.com/waInstance1101000001/media/testtoken/true_X');
+  });
+
+  it('downloadUrl empty when mediaBaseUrl unset', () => {
+    const msg = {
+      id: { _serialized: 'true_Y' },
+      from: '7@c.us',
+      type: 'document',
+      timestamp: 1,
+      _data: { filename: 'doc.pdf', mimetype: 'application/pdf' },
+    };
+    const out = makeMapper().toIncomingMessageReceived(msg);
+    expect(out.messageData.fileMessageData.downloadUrl).toBe('');
+    expect(out.messageData.fileMessageData.fileName).toBe('doc.pdf');
   });
 });
 

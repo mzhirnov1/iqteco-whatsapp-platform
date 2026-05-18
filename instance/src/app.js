@@ -6,6 +6,8 @@ const { MongoClient } = require('mongodb');
 const config = require('./config');
 const { createLogger } = require('./lib/Logger');
 const MongoStore = require('./lib/MongoStore');
+const MediaStore = require('./lib/MediaStore');
+const MessageStore = require('./lib/MessageStore');
 const AdminClient = require('./lib/AdminClient');
 const WebhookSender = require('./lib/WebhookSender');
 const GreenApiMapper = require('./lib/GreenApiMapper');
@@ -57,6 +59,12 @@ async function main() {
   // 3. Session store
   const store = new MongoStore({ db, idInstance: config.idInstance, dataPath: './.wwebjs_auth/' });
 
+  // 3b. Media + message stores
+  const mediaStore = new MediaStore({ db, idInstance: config.idInstance });
+  await mediaStore.ensureTtl();
+  const messageStore = new MessageStore({ db, idInstance: config.idInstance });
+  await messageStore.ensureIndexes();
+
   // 4. Webhook sender
   const webhookSender = new WebhookSender({
     db,
@@ -69,7 +77,12 @@ async function main() {
 
   // 5. Mapper + state
   const state = { authorized: false, lastState: 'starting', wid: null };
-  const mapper = new GreenApiMapper({ idInstance: config.idInstance, getWid: () => state.wid });
+  const mapper = new GreenApiMapper({
+    idInstance: config.idInstance,
+    apiToken: config.apiToken,
+    getWid: () => state.wid,
+    mediaBaseUrl: config.mediaBaseUrl,
+  });
   const qrCache = { qr: null, pngBase64: null, expiresAt: 0 };
   const codeCache = { code: null, expiresAt: 0 };
   const outgoingApiIds = new Set();
@@ -79,6 +92,7 @@ async function main() {
 
   const ctx = {
     config, logger, db, adminClient, adminConfig, webhookSender, mapper,
+    mediaStore, messageStore,
     qrCache, codeCache, outgoingApiIds, state,
     get client() { return client; },
     rebootClient,

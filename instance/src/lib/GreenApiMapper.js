@@ -3,9 +3,11 @@
 const { mapWAStateToGreen, mapAckToGreen } = require('./StateMap');
 
 class GreenApiMapper {
-  constructor({ idInstance, getWid }) {
+  constructor({ idInstance, apiToken, getWid, mediaBaseUrl = '' }) {
     this.idInstance = Number(idInstance);
+    this.apiToken = String(apiToken || '');
     this.getWid = getWid || (() => null);
+    this.mediaBaseUrl = (mediaBaseUrl || '').replace(/\/$/, '');
   }
 
   _instanceData() {
@@ -14,6 +16,11 @@ class GreenApiMapper {
       wid: this.getWid(),
       typeInstance: 'whatsapp',
     };
+  }
+
+  _downloadUrl(messageId) {
+    if (!this.mediaBaseUrl || !messageId) return '';
+    return `${this.mediaBaseUrl}/waInstance${this.idInstance}/media/${this.apiToken}/${encodeURIComponent(messageId)}`;
   }
 
   toStateInstanceChanged(waState) {
@@ -43,28 +50,31 @@ class GreenApiMapper {
     };
     if (msg.author) senderData.senderContactName = msg._data?.verifiedName || '';
 
+    const idMessage = msg.id?._serialized || msg.id?.id || '';
+
     return {
       typeWebhook: 'incomingMessageReceived',
       instanceData: this._instanceData(),
       timestamp: msg.timestamp ?? Math.floor(Date.now() / 1000),
-      idMessage: msg.id?._serialized || msg.id?.id || '',
+      idMessage,
       senderData,
-      messageData: this._messageData(msg),
+      messageData: this._messageData(msg, idMessage),
     };
   }
 
   toOutgoingMessageReceived(msg) {
+    const idMessage = msg.id?._serialized || msg.id?.id || '';
     return {
       typeWebhook: 'outgoingMessageReceived',
       instanceData: this._instanceData(),
       timestamp: msg.timestamp ?? Math.floor(Date.now() / 1000),
-      idMessage: msg.id?._serialized || msg.id?.id || '',
+      idMessage,
       senderData: {
         chatId: msg.to,
         sender: msg.from,
         senderName: '',
       },
-      messageData: this._messageData(msg),
+      messageData: this._messageData(msg, idMessage),
     };
   }
 
@@ -87,7 +97,7 @@ class GreenApiMapper {
     };
   }
 
-  _messageData(msg) {
+  _messageData(msg, idMessage) {
     const type = msg.type || 'chat';
 
     if (type === 'chat' || type === 'text') {
@@ -97,41 +107,19 @@ class GreenApiMapper {
       };
     }
 
+    const fileFields = this._fileFields(msg, idMessage);
+
     if (type === 'image') {
       return {
         typeMessage: 'imageMessage',
-        fileMessageData: this._fileFields(msg),
-        imageMessageData: this._fileFields(msg),
+        fileMessageData: fileFields,
+        imageMessageData: fileFields,
       };
     }
-
-    if (type === 'video') {
-      return {
-        typeMessage: 'videoMessage',
-        fileMessageData: this._fileFields(msg),
-      };
-    }
-
-    if (type === 'audio' || type === 'ptt') {
-      return {
-        typeMessage: 'audioMessage',
-        fileMessageData: this._fileFields(msg),
-      };
-    }
-
-    if (type === 'document') {
-      return {
-        typeMessage: 'documentMessage',
-        fileMessageData: this._fileFields(msg),
-      };
-    }
-
-    if (type === 'sticker') {
-      return {
-        typeMessage: 'stickerMessage',
-        fileMessageData: this._fileFields(msg),
-      };
-    }
+    if (type === 'video') return { typeMessage: 'videoMessage', fileMessageData: fileFields };
+    if (type === 'audio' || type === 'ptt') return { typeMessage: 'audioMessage', fileMessageData: fileFields };
+    if (type === 'document') return { typeMessage: 'documentMessage', fileMessageData: fileFields };
+    if (type === 'sticker') return { typeMessage: 'stickerMessage', fileMessageData: fileFields };
 
     if (type === 'location') {
       return {
@@ -152,15 +140,12 @@ class GreenApiMapper {
       };
     }
 
-    return {
-      typeMessage: type,
-      textMessageData: { textMessage: msg.body || '' },
-    };
+    return { typeMessage: type, textMessageData: { textMessage: msg.body || '' } };
   }
 
-  _fileFields(msg) {
+  _fileFields(msg, idMessage) {
     return {
-      downloadUrl: msg._data?.deprecatedMms3Url || msg._data?.directPath || '',
+      downloadUrl: this._downloadUrl(idMessage),
       caption: msg.body || msg._data?.caption || '',
       fileName: msg._data?.filename || msg._data?.fileName || '',
       mimeType: msg._data?.mimetype || msg._data?.mimeType || '',

@@ -7,6 +7,19 @@ module.exports = (ctx) => async (msg) => {
     const payload = fromApi
       ? ctx.mapper.toOutgoingAPIMessageReceived(msg)
       : ctx.mapper.toOutgoingMessageReceived(msg);
+
+    if (ctx.messageStore) {
+      ctx.messageStore.put({
+        idMessage: payload.idMessage,
+        chatId: msg.to,
+        direction: 'outgoing',
+        type: payload.messageData?.typeMessage || msg.type,
+        payload,
+        timestamp: payload.timestamp,
+        sendByApi: fromApi,
+      }).catch(() => {});
+    }
+
     await ctx.webhookSender.enqueue(payload.typeWebhook, payload);
     if (fromApi) ctx.outgoingApiIds.delete(msg.id._serialized);
   } catch (err) {

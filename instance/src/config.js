@@ -25,6 +25,8 @@ const config = {
   backupIntervalMs: Number(optional('BACKUP_INTERVAL_MS', 60000)),
   httpPort: Number(optional('HTTP_PORT', 8080)),
   version: optional('npm_package_version', '0.1.0'),
+  mediaBaseUrl: optional('MEDIA_BASE_URL', ''),
+  mediaMaxBytes: Number(optional('MEDIA_MAX_BYTES', 50 * 1024 * 1024)),
 };
 
 module.exports = config;
