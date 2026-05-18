@@ -1,0 +1,36 @@
+[Unit]
+Description=WhatsApp instance %i
+After=network-online.target mongodb.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+Environment=PODMAN_SYSTEMD_UNIT=%n
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+EnvironmentFile=/etc/wa/instance-%i.env
+ExecStartPre=-/usr/bin/podman rm -f wa-%i
+ExecStart=/usr/bin/podman run \
+    --name wa-%i \
+    --network wa-net \
+    --ip6 ${IPV6_ADDR} \
+    --memory 1g \
+    --shm-size 1g \
+    --security-opt seccomp=unconfined \
+    --label wa-instance=%i \
+    --rm \
+    --replace \
+    -e IDINSTANCE=%i \
+    -e API_TOKEN=${API_TOKEN} \
+    -e MONGO_URL=${MONGO_URL} \
+    -e ADMIN_URL=${ADMIN_URL} \
+    -e ADMIN_TOKEN=${ADMIN_TOKEN} \
+    -e WEBHOOK_URL=${WEBHOOK_URL} \
+    -e IPV6_ADDR=${IPV6_ADDR} \
+    ${WA_IMAGE}
+ExecStop=/usr/bin/podman stop --time=10 wa-%i
+
+[Install]
+WantedBy=multi-user.target

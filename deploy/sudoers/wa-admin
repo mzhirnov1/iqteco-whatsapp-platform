@@ -1,0 +1,22 @@
+# /etc/sudoers.d/wa-admin
+# Сужает доступ www-data к конкретным операциям над контейнерами и nginx.
+# Validate via `visudo -cf /etc/sudoers.d/wa-admin` после изменений.
+
+www-data ALL=(root) NOPASSWD: /usr/bin/podman run *
+www-data ALL=(root) NOPASSWD: /usr/bin/podman stop wa-*
+www-data ALL=(root) NOPASSWD: /usr/bin/podman start wa-*
+www-data ALL=(root) NOPASSWD: /usr/bin/podman rm wa-*
+www-data ALL=(root) NOPASSWD: /usr/bin/podman logs wa-*
+www-data ALL=(root) NOPASSWD: /usr/bin/podman pause wa-*
+www-data ALL=(root) NOPASSWD: /usr/bin/podman unpause wa-*
+www-data ALL=(root) NOPASSWD: /usr/bin/podman exec wa-*
+www-data ALL=(root) NOPASSWD: /usr/bin/podman inspect wa-*
+www-data ALL=(root) NOPASSWD: /usr/bin/podman ps *
+www-data ALL=(root) NOPASSWD: /usr/bin/systemctl start wa-instance@*
+www-data ALL=(root) NOPASSWD: /usr/bin/systemctl stop wa-instance@*
+www-data ALL=(root) NOPASSWD: /usr/bin/systemctl restart wa-instance@*
+www-data ALL=(root) NOPASSWD: /usr/sbin/nginx -s reload
+www-data ALL=(root) NOPASSWD: /usr/sbin/nft -j list counters
+www-data ALL=(root) NOPASSWD: /usr/local/bin/wa-nft-add-counter *
+www-data ALL=(root) NOPASSWD: /usr/local/bin/wa-nft-del-counter *
+www-data ALL=(root) NOPASSWD: /usr/local/bin/wa-nginx-map-reload

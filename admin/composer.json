@@ -1,0 +1,26 @@
+{
+    "name": "iqteco/wa-admin",
+    "description": "Admin panel for iqteco-whatsapp-platform",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.1",
+        "ext-mongodb": "*",
+        "ext-json": "*",
+        "mongodb/mongodb": "^1.20",
+        "vlucas/phpdotenv": "^5.6",
+        "monolog/monolog": "^3.7",
+        "symfony/process": "^6.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "Iqteco\\WaAdmin\\": "src/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "8.1.0"
+        },
+        "sort-packages": true
+    }
+}

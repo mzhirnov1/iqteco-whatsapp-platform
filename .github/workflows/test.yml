@@ -1,0 +1,38 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  instance:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: instance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: instance/package-lock.json
+      - run: npm ci || npm install
+      - run: npm test --if-present
+
+  admin:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.1
+          extensions: mongodb, mbstring, json
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist
+      - run: php -l public/index.php
+      - run: find src -name '*.php' -print0 | xargs -0 -n1 php -l

@@ -1,0 +1,20 @@
+# nftables-counters template — фаза 5
+# Применяется через `nft -f nftables.conf` после генерации rules для каждого инстанса.
+# Структура: общая таблица + per-instance counters создаются динамически
+# скриптом /usr/local/bin/wa-nft-add-counter при создании инстанса.
+
+table inet wa_traffic {
+    counter wa_total_in {}
+    counter wa_total_out {}
+
+    chain prerouting {
+        type filter hook prerouting priority 0;
+        # individual rules will be added per instance:
+        # ip6 daddr 2a01:4f8:221:2d8d::a01:1 counter name "wa-1101000001-in"
+    }
+
+    chain postrouting {
+        type filter hook postrouting priority 0;
+        # ip6 saddr 2a01:4f8:221:2d8d::a01:1 counter name "wa-1101000001-out"
+    }
+}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll wa traffic counters every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=wa-traffic-poller.service
+
+[Install]
+WantedBy=timers.target
