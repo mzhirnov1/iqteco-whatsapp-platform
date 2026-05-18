@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Iqteco\WaAdmin\Router;
+use Iqteco\WaAdmin\Services\I18n;
+use Iqteco\WaAdmin\Services\View;
 
 $config = require __DIR__ . '/../config/config.php';
 $routes = require __DIR__ . '/../config/routes.php';
@@ -21,6 +23,9 @@ session_set_cookie_params([
     'samesite' => 'Strict',
 ]);
 session_start();
+
+View::setPath(__DIR__ . '/../src/Views');
+I18n::init($config);
 
 $router = new Router($routes, $config);
 $router->dispatch($_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI']);
