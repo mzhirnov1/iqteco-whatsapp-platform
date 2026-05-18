@@ -24,6 +24,13 @@ const onMessage = require('./events/onMessage');
 const onMessageCreate = require('./events/onMessageCreate');
 const onMessageAck = require('./events/onMessageAck');
 const onChangeState = require('./events/onChangeState');
+const onMessageEdit = require('./events/onMessageEdit');
+const onMessageRevoke = require('./events/onMessageRevoke');
+const onIncomingCall = require('./events/onIncomingCall');
+const onGroupEvent = require('./events/onGroupEvent');
+const onContactChanged = require('./events/onContactChanged');
+const onVoteUpdate = require('./events/onVoteUpdate');
+const onBatteryChanged = require('./events/onBatteryChanged');
 
 const logger = createLogger(config.logLevel);
 
@@ -170,6 +177,15 @@ async function main() {
     client.on('message_create', onMessageCreate(ctx));
     client.on('message_ack', onMessageAck(ctx));
     client.on('change_state', onChangeState(ctx));
+    client.on('message_edit', onMessageEdit(ctx));
+    client.on('message_revoke_everyone', onMessageRevoke(ctx));
+    client.on('call', onIncomingCall(ctx));
+    client.on('group_join', onGroupEvent(ctx, 'groupJoin'));
+    client.on('group_leave', onGroupEvent(ctx, 'groupLeave'));
+    client.on('group_update', onGroupEvent(ctx, 'groupUpdate'));
+    client.on('contact_changed', onContactChanged(ctx));
+    client.on('vote_update', onVoteUpdate(ctx));
+    client.on('battery_changed', onBatteryChanged(ctx));
     client.on('loading_screen', (percent, message) => logger.info({ percent, message }, 'loading_screen'));
     client.on('remote_session_saved', () => logger.info('remote_session_saved'));
   }

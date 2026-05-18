@@ -52,6 +52,7 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
             <label class="inline"><input type="checkbox" name="banned" value="1"> <?= View::e(I18n::t('instance.show.banned_label')) ?></label>
             <button type="submit" class="btn btn-danger"><?= View::e(I18n::t('instance.show.delete')) ?></button>
         </form>
+        <a class="btn" href="/instances/<?= View::e($id) ?>/webhooks"><?= View::e(I18n::t('instance.show.webhook_log')) ?></a>
     </div>
 </div>
 

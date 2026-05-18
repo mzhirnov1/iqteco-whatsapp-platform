@@ -29,6 +29,10 @@ const getChatHistory = require('./getChatHistory');
 const lastIncomingMessages = require('./lastIncomingMessages');
 const lastOutgoingMessages = require('./lastOutgoingMessages');
 
+const editMessage = require('./editMessage');
+const deleteMessage = require('./deleteMessage');
+const archiveChat = require('./archiveChat');
+
 const media = require('./media');
 
 function mountRoutes(app, ctx) {
@@ -54,6 +58,12 @@ function mountRoutes(app, ctx) {
   app.post(`${prefix}/sendContact/:token`, auth, sendContact(ctx));
   app.post(`${prefix}/forwardMessages/:token`, auth, forwardMessages(ctx));
   app.post(`${prefix}/markChatAsRead/:token`, auth, markChatAsRead(ctx));
+
+  // Edit / delete / archive (Phase 4)
+  app.post(`${prefix}/editMessage/:token`, auth, editMessage(ctx));
+  app.post(`${prefix}/deleteMessage/:token`, auth, deleteMessage(ctx));
+  app.post(`${prefix}/archiveChat/:token`, auth, archiveChat(ctx, true));
+  app.post(`${prefix}/unarchiveChat/:token`, auth, archiveChat(ctx, false));
 
   // Queries
   app.post(`${prefix}/checkWhatsapp/:token`, auth, checkWhatsapp(ctx));

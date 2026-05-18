@@ -45,4 +45,14 @@ return [
     'instance.show.delete' => 'Delete instance',
     'instance.show.delete_confirm' => 'Delete this instance? Container will stop, IPv6 will be quarantined.',
     'instance.show.banned_label' => 'Was banned (30 days quarantine)',
+    'instance.show.webhook_log' => 'Webhook log',
+
+    'webhook_log.title' => 'Webhook log — instance {id}',
+    'webhook_log.back' => 'Back to instance',
+    'webhook_log.all' => 'all',
+    'webhook_log.apply' => 'Filter',
+    'webhook_log.total' => 'Total records: {n}',
+    'webhook_log.actions' => 'Actions',
+    'webhook_log.retry' => 'Retry',
+    'webhook_log.empty' => 'No records',
 ];

@@ -97,6 +97,92 @@ class GreenApiMapper {
     };
   }
 
+  toEditedMessageReceived(msg) {
+    const idMessage = msg.id?._serialized || msg.id?.id || '';
+    return {
+      typeWebhook: 'editedMessageReceived',
+      instanceData: this._instanceData(),
+      timestamp: Math.floor(Date.now() / 1000),
+      idMessage,
+      senderData: {
+        chatId: msg.fromMe ? msg.to : msg.from,
+        sender: msg.author || msg.from,
+        senderName: msg._data?.notifyName || '',
+      },
+      messageData: this._messageData(msg, idMessage),
+    };
+  }
+
+  toDeletedMessageReceived(msg, originalMsg = null) {
+    const idMessage = (originalMsg?.id?._serialized) || msg.id?._serialized || '';
+    return {
+      typeWebhook: 'deletedMessageReceived',
+      instanceData: this._instanceData(),
+      timestamp: Math.floor(Date.now() / 1000),
+      idMessage,
+      senderData: {
+        chatId: msg.fromMe ? msg.to : msg.from,
+        sender: msg.author || msg.from,
+      },
+    };
+  }
+
+  toIncomingCall(call) {
+    return {
+      typeWebhook: 'incomingCall',
+      instanceData: this._instanceData(),
+      timestamp: Math.floor(Date.now() / 1000),
+      idMessage: call.id || '',
+      from: call.from || call.peerJid || '',
+      status: call.isVideo ? 'offerVideo' : 'offer',
+    };
+  }
+
+  toGroupChange(eventType, payload) {
+    return {
+      typeWebhook: eventType,
+      instanceData: this._instanceData(),
+      timestamp: Math.floor(Date.now() / 1000),
+      ...payload,
+    };
+  }
+
+  toContactChanged(message, oldId, newId, isContact) {
+    return {
+      typeWebhook: 'contactChanged',
+      instanceData: this._instanceData(),
+      timestamp: Math.floor(Date.now() / 1000),
+      oldChatId: oldId,
+      newChatId: newId,
+      isContact: !!isContact,
+    };
+  }
+
+  toPollMessage(vote, msg) {
+    const idMessage = msg?.id?._serialized || msg?.id?.id || '';
+    return {
+      typeWebhook: 'pollUpdate',
+      instanceData: this._instanceData(),
+      timestamp: Math.floor(Date.now() / 1000),
+      idMessage,
+      chatId: msg?.from || msg?.to || '',
+      voter: vote?.voter || vote?.id?.remote || '',
+      selectedOptions: (vote?.selectedOptions || []).map((o) => o.name || o.localId || ''),
+    };
+  }
+
+  toDeviceInfo(info) {
+    return {
+      typeWebhook: 'deviceInfo',
+      instanceData: this._instanceData(),
+      timestamp: Math.floor(Date.now() / 1000),
+      deviceData: {
+        battery: info.battery ?? null,
+        plugged: info.plugged ?? null,
+      },
+    };
+  }
+
   _messageData(msg, idMessage) {
     const type = msg.type || 'chat';
 

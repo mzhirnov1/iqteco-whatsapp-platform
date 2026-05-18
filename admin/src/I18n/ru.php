@@ -45,4 +45,14 @@ return [
     'instance.show.delete' => 'Удалить инстанс',
     'instance.show.delete_confirm' => 'Удалить инстанс? Контейнер будет остановлен, IPv6 уйдёт в карантин.',
     'instance.show.banned_label' => 'Был забанен (30 дней карантина)',
+    'instance.show.webhook_log' => 'Журнал webhook',
+
+    'webhook_log.title' => 'Webhook журнал — инстанс {id}',
+    'webhook_log.back' => 'К инстансу',
+    'webhook_log.all' => 'все',
+    'webhook_log.apply' => 'Фильтровать',
+    'webhook_log.total' => 'Всего записей: {n}',
+    'webhook_log.actions' => 'Действия',
+    'webhook_log.retry' => 'Повторить',
+    'webhook_log.empty' => 'Нет записей',
 ];

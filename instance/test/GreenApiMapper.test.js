@@ -94,6 +94,60 @@ describe('GreenApiMapper.toIncomingMessageReceived', () => {
   });
 });
 
+describe('GreenApiMapper extended webhooks (Phase 4)', () => {
+  it('toEditedMessageReceived', () => {
+    const msg = {
+      id: { _serialized: 'true_X' }, from: '7@c.us', body: 'new text',
+      type: 'chat', fromMe: false, _data: { notifyName: 'John' },
+    };
+    const out = makeMapper().toEditedMessageReceived(msg);
+    expect(out).toMatchObject({
+      typeWebhook: 'editedMessageReceived',
+      idMessage: 'true_X',
+      messageData: { typeMessage: 'textMessage', textMessageData: { textMessage: 'new text' } },
+    });
+  });
+
+  it('toDeletedMessageReceived uses original id', () => {
+    const msg = { id: { _serialized: 'revoke_msg' }, from: '7@c.us', fromMe: false };
+    const original = { id: { _serialized: 'orig_msg' } };
+    const out = makeMapper().toDeletedMessageReceived(msg, original);
+    expect(out.idMessage).toBe('orig_msg');
+    expect(out.typeWebhook).toBe('deletedMessageReceived');
+  });
+
+  it('toIncomingCall offer vs offerVideo', () => {
+    const audio = makeMapper().toIncomingCall({ id: 'c1', from: '7@c.us', isVideo: false });
+    const video = makeMapper().toIncomingCall({ id: 'c2', from: '7@c.us', isVideo: true });
+    expect(audio.status).toBe('offer');
+    expect(video.status).toBe('offerVideo');
+  });
+
+  it('toGroupChange embeds eventType', () => {
+    const out = makeMapper().toGroupChange('groupJoin', { chatId: 'g@g.us', author: '7@c.us' });
+    expect(out.typeWebhook).toBe('groupJoin');
+    expect(out.chatId).toBe('g@g.us');
+  });
+
+  it('toContactChanged carries old/new ids', () => {
+    const out = makeMapper().toContactChanged({}, '1@c.us', '2@c.us', true);
+    expect(out).toMatchObject({
+      typeWebhook: 'contactChanged',
+      oldChatId: '1@c.us',
+      newChatId: '2@c.us',
+      isContact: true,
+    });
+  });
+
+  it('toDeviceInfo carries battery+plugged', () => {
+    const out = makeMapper().toDeviceInfo({ battery: 35, plugged: true });
+    expect(out).toMatchObject({
+      typeWebhook: 'deviceInfo',
+      deviceData: { battery: 35, plugged: true },
+    });
+  });
+});
+
 describe('GreenApiMapper.toStateInstanceChanged', () => {
   it('maps CONNECTED → authorized', () => {
     const out = makeMapper().toStateInstanceChanged('CONNECTED');
