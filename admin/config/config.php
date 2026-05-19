@@ -19,9 +19,9 @@ return [
         'name_prefix' => 'wa-',
     ],
     'ip_pool' => [
-        'prefix' => getenv('IPV6_PREFIX') ?: '2a01:4f8:221:2d8d::',
-        'subnet_bits' => 64,
-        'reserved_offset' => 0xa010001,
+        'prefix' => getenv('IPV6_PREFIX') ?: '2a01:4f8:221:2d8d:c0a8:',
+        'subnet_bits' => 80,
+        'reserved_offset' => 1,
         'reserved_count' => 255,
     ],
     'nginx' => [

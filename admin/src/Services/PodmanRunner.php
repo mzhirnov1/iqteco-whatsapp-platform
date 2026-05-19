@@ -18,7 +18,6 @@ final class PodmanRunner
     public function run(array $opts): string
     {
         $name = $this->validateName($opts['name'] ?? '');
-        $ipv6 = $this->validateIpv6((string)($opts['ipv6'] ?? ''));
         $image = (string)($this->config['podman']['image']);
 
         $env = $opts['env'] ?? [];
@@ -28,13 +27,17 @@ final class PodmanRunner
             'run', '-d',
             '--name', $name,
             '--network', $this->config['podman']['network'],
-            '--ip6', $ipv6,
             '--restart=on-failure:5',
             '--memory=1g',
             '--shm-size=1g',
             '--security-opt', 'seccomp=unconfined',
             '--label', 'wa-instance=' . substr($name, 3),
         ];
+
+        if (!empty($opts['ipv6'])) {
+            $args[] = '--ip6';
+            $args[] = $this->validateIpv6((string)$opts['ipv6']);
+        }
 
         foreach ($env as $k => $v) {
             $args[] = '-e';
