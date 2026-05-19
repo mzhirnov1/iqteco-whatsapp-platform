@@ -6,8 +6,9 @@
  * getChatHistory (fallback when fetchMessages not available).
  */
 class MessageStore {
-  constructor({ db, idInstance, lruSize = 1000, ttlDays = 7 }) {
+  constructor({ db, idInstance, lruSize = 1000, ttlDays = 90 }) {
     if (!db) throw new Error('MessageStore: db required');
+    this.db = db;
     this.coll = db.collection('messages');
     this.idInstance = String(idInstance);
     this.lruSize = lruSize;
@@ -16,14 +17,22 @@ class MessageStore {
   }
 
   async ensureIndexes() {
+    const ttlSeconds = this.ttlDays * 86400;
     try {
       await this.coll.createIndex({ idInstance: 1, direction: 1, timestamp: -1 });
       await this.coll.createIndex({ idInstance: 1, chatId: 1, timestamp: -1 });
       await this.coll.createIndex({ idInstance: 1, idMessage: 1 }, { unique: true });
       await this.coll.createIndex(
         { savedAt: 1 },
-        { expireAfterSeconds: this.ttlDays * 86400 }
+        { expireAfterSeconds: ttlSeconds }
       );
+      // Patch existing TTL index if expireAfterSeconds was different (MongoDB
+      // caches old value on createIndex). Use keyPattern so we match by shape
+      // regardless of the index name MongoDB picked.
+      await this.db.command({
+        collMod: 'messages',
+        index: { keyPattern: { savedAt: 1 }, expireAfterSeconds: ttlSeconds },
+      }).catch(() => {});
     } catch {
       // ignore
     }

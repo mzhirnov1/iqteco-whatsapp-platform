@@ -25,6 +25,7 @@ return [
     ['GET',  '#^/instances/(?P<id>\d+)/webhooks$#',                          [\Iqteco\WaAdmin\Controllers\WebhookLogController::class, 'index']],
     ['GET',  '#^/instances/(?P<id>\d+)/webhooks/(?P<logId>[a-f0-9]{24})$#',  [\Iqteco\WaAdmin\Controllers\WebhookLogController::class, 'show']],
     ['POST', '#^/instances/(?P<id>\d+)/webhooks/(?P<logId>[a-f0-9]{24})/retry$#', [\Iqteco\WaAdmin\Controllers\WebhookLogController::class, 'retry']],
+    ['POST', '#^/instances/(?P<id>\d+)/webhooks/retry-all-failed$#',             [\Iqteco\WaAdmin\Controllers\WebhookLogController::class, 'retryFailedBulk']],
 
     ['GET',  '#^/api/instances/(?P<id>\d+)/traffic$#',  [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'traffic']],
     ['GET',  '#^/api/instances/(?P<id>\d+)/logs$#',     [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'logs']],

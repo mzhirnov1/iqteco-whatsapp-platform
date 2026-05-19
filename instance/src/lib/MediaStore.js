@@ -3,8 +3,10 @@
 const { GridFSBucket, ObjectId } = require('mongodb');
 
 class MediaStore {
-  constructor({ db, idInstance, bucketName = 'wa_media', ttlDays = 7 }) {
+  constructor({ db, idInstance, bucketName = 'wa_media', ttlDays = 90 }) {
     if (!db) throw new Error('MediaStore: db required');
+    this.db = db;
+    this.bucketName = bucketName;
     this.bucket = new GridFSBucket(db, { bucketName });
     this.filesColl = db.collection(`${bucketName}.files`);
     this.idInstance = String(idInstance);
@@ -12,11 +14,17 @@ class MediaStore {
   }
 
   async ensureTtl() {
+    const ttlSeconds = this.ttlDays * 86400;
     try {
       await this.filesColl.createIndex(
         { uploadDate: 1 },
-        { expireAfterSeconds: this.ttlDays * 86400 }
+        { expireAfterSeconds: ttlSeconds },
       );
+      // Patch existing TTL index if expireAfterSeconds was different
+      await this.db.command({
+        collMod: `${this.bucketName}.files`,
+        index: { keyPattern: { uploadDate: 1 }, expireAfterSeconds: ttlSeconds },
+      }).catch(() => {});
     } catch {
       // ignore on read-only or already exists
     }

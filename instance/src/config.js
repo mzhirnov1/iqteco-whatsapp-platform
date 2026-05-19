@@ -27,6 +27,8 @@ const config = {
   version: optional('npm_package_version', '0.1.0'),
   mediaBaseUrl: optional('MEDIA_BASE_URL', ''),
   mediaMaxBytes: Number(optional('MEDIA_MAX_BYTES', 50 * 1024 * 1024)),
+  messagesTtlDays: Number(optional('MESSAGES_TTL_DAYS', 90)),
+  mediaTtlDays: Number(optional('MEDIA_TTL_DAYS', 90)),
 };
 
 module.exports = config;

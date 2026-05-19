@@ -39,6 +39,11 @@ final class WebhookLogController
         $types = $log->distinct('type', ['idInstance' => $idInstance]);
         $statuses = $log->distinct('status', ['idInstance' => $idInstance]);
 
+        // Stats for bulk-retry UI (live outbox state)
+        $outbox = MongoClient::db($this->config)->selectCollection('webhook_outbox');
+        $pendingCount = $outbox->countDocuments(['idInstance' => $idInstance, 'status' => 'pending']);
+        $failedCount = $outbox->countDocuments(['idInstance' => $idInstance, 'status' => 'failed']);
+
         View::renderLayout('webhook_log', [
             'idInstance' => $idInstance,
             'items' => $items,
@@ -50,6 +55,8 @@ final class WebhookLogController
             'filterStatus' => $status,
             'allTypes' => $types,
             'allStatuses' => $statuses,
+            'pendingCount' => $pendingCount,
+            'failedCount' => $failedCount,
         ]);
     }
 
@@ -104,5 +111,47 @@ final class WebhookLogController
         ]);
 
         header('Location: /instances/' . $log['idInstance'] . '/webhooks');
+    }
+
+    /**
+     * Bulk replay: для всех failed webhook_outbox записей этого инстанса
+     * создаёт новые pending копии с attempts=0, nextAttemptAt=now.
+     * Старые failed остаются в БД для аудита.
+     */
+    public function retryFailedBulk(array $params): void
+    {
+        (new AuthService($this->config))->requireAuth();
+        Csrf::requireValid();
+
+        $idInstance = (string)$params['id'];
+        $outbox = MongoClient::db($this->config)->selectCollection('webhook_outbox');
+
+        $cursor = $outbox->find(
+            ['idInstance' => $idInstance, 'status' => 'failed'],
+            ['limit' => 1000],
+        );
+        $now = new UTCDateTime();
+        $count = 0;
+        $docs = [];
+        foreach ($cursor as $f) {
+            $docs[] = [
+                'idInstance' => $idInstance,
+                'typeWebhook' => $f['typeWebhook'] ?? 'unknown',
+                'payload' => $f['payload'] ?? new \stdClass(),
+                'status' => 'pending',
+                'attempts' => 0,
+                'nextAttemptAt' => $now,
+                'createdAt' => $now,
+                'manualRetryFromOutboxId' => (string)$f['_id'],
+            ];
+            $count++;
+            if (count($docs) >= 500) {
+                $outbox->insertMany($docs);
+                $docs = [];
+            }
+        }
+        if ($docs) $outbox->insertMany($docs);
+
+        header('Location: /instances/' . $idInstance . '/webhooks?retried=' . $count);
     }
 }

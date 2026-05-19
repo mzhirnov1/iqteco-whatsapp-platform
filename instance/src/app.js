@@ -67,9 +67,9 @@ async function main() {
   const store = new MongoStore({ db, idInstance: config.idInstance, dataPath: './.wwebjs_auth/' });
 
   // 3b. Media + message stores
-  const mediaStore = new MediaStore({ db, idInstance: config.idInstance });
+  const mediaStore = new MediaStore({ db, idInstance: config.idInstance, ttlDays: config.mediaTtlDays });
   await mediaStore.ensureTtl();
-  const messageStore = new MessageStore({ db, idInstance: config.idInstance });
+  const messageStore = new MessageStore({ db, idInstance: config.idInstance, ttlDays: config.messagesTtlDays });
   await messageStore.ensureIndexes();
 
   // 4. Webhook sender
@@ -111,15 +111,19 @@ async function main() {
   // 7. HTTP server
   const app = express();
   app.use(express.json({ limit: '50mb' }));
-  app.get('/health', (_req, res) => res.json({
-    status: 'ok',
-    idInstance: config.idInstance,
-    state: state.lastState,
-    authorized: state.authorized,
-    wid: state.wid,
-    uptime: process.uptime(),
-    version: config.version,
-  }));
+  app.get('/health', async (_req, res) => {
+    const queue = await webhookSender.getQueueStats().catch(() => null);
+    res.json({
+      status: 'ok',
+      idInstance: config.idInstance,
+      state: state.lastState,
+      authorized: state.authorized,
+      wid: state.wid,
+      uptime: process.uptime(),
+      version: config.version,
+      queue,
+    });
+  });
   mountRoutes(app, ctx);
 
   const server = app.listen(config.httpPort, '::', () => {

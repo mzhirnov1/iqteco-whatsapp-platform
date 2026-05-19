@@ -55,6 +55,8 @@ return [
     'webhook_log.actions' => 'Actions',
     'webhook_log.retry' => 'Retry',
     'webhook_log.empty' => 'No records',
+    'webhook_log.retry_all_failed' => 'Retry all failed ({n})',
+    'webhook_log.confirm_retry_all' => 'Re-queue {n} failed webhook(s)? They will get attempt #1.',
 
     'instance.show.traffic' => 'Traffic (per IPv6)',
     'instance.show.logs' => 'Container logs',

@@ -65,14 +65,22 @@ $relTime = function ($utc): string {
             'exceeded' => '<span class="badge badge-traffic-exceeded">⛔ over</span>',
             default => '',
         };
+        $iid = (string)$i['idInstance'];
+        $ws = $webhookStats[$iid] ?? [];
+        $wbBadge = '';
+        if (!empty($ws['failed'])) {
+            $wbBadge = '<a class="badge badge-error" href="/instances/' . htmlspecialchars($iid) . '/webhooks?status=failed" title="failed webhooks">⚠ ' . (int)$ws['failed'] . ' failed</a>';
+        } elseif (!empty($ws['pending']) && $ws['pending'] > 20) {
+            $wbBadge = '<span class="badge badge-warn">' . (int)$ws['pending'] . ' queued</span>';
+        }
         ?>
         <tr>
-            <td><a href="/instances/<?= View::e((string)$i['idInstance']) ?>"><?= View::e((string)$i['idInstance']) ?></a></td>
-            <td><?= $stateBadge($i['state'] ?? null) ?> <?= $trafficBadge ?></td>
+            <td><a href="/instances/<?= View::e($iid) ?>"><?= View::e($iid) ?></a></td>
+            <td><?= $stateBadge($i['state'] ?? null) ?> <?= $trafficBadge ?> <?= $wbBadge ?></td>
             <td><?= View::e((string)($i['phoneNumber'] ?? '—')) ?></td>
             <td class="ipv6"><?= View::e((string)($i['ipv6'] ?? '—')) ?></td>
             <td><?= View::e($relTime($i['lastSeen'] ?? null)) ?></td>
-            <td><a href="/instances/<?= View::e((string)$i['idInstance']) ?>"><?= View::e(I18n::t('dashboard.view')) ?></a></td>
+            <td><a href="/instances/<?= View::e($iid) ?>"><?= View::e(I18n::t('dashboard.view')) ?></a></td>
         </tr>
     <?php endforeach; endif; ?>
     </tbody>

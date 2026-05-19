@@ -3,8 +3,16 @@
 const crypto = require('crypto');
 const { request } = require('undici');
 
-const BACKOFF_SECONDS = [1, 5, 30, 120, 600];
-const MAX_ATTEMPTS = BACKOFF_SECONDS.length;
+// Retry schedule: 1s, 5s, 30s, 2m, 10m, 30m, 1h x4, 2h x3, 4h x2
+// Total ≈ 24 hours of automatic retries before marking 'failed'.
+const BACKOFF_SECONDS = [
+    1, 5, 30, 120, 600,                 // first ~13 minutes
+    1800, 3600,                          // +30m, +1h
+    3600, 3600, 3600, 3600,             // +4h
+    7200, 7200, 7200,                   // +6h
+    14400, 14400,                        // +8h
+];
+const MAX_ATTEMPTS = BACKOFF_SECONDS.length;  // 16 attempts ≈ 24h
 
 class WebhookSender {
   constructor({ db, idInstance, getWebhookUrl, getWebhookSecret, logger, tickIntervalMs = 1000 }) {
@@ -39,6 +47,26 @@ class WebhookSender {
       await this._tick();
       await new Promise((r) => setTimeout(r, 100));
     }
+  }
+
+  /**
+   * Snapshot of outbox/log state for /health and admin UI badges.
+   */
+  async getQueueStats() {
+    const [pending, failed, lastSent] = await Promise.all([
+      this.outbox.countDocuments({ idInstance: this.idInstance, status: 'pending' }),
+      this.outbox.countDocuments({ idInstance: this.idInstance, status: 'failed' }),
+      this.outbox.findOne(
+        { idInstance: this.idInstance, status: 'sent' },
+        { sort: { sentAt: -1 }, projection: { sentAt: 1 } },
+      ),
+    ]);
+    return {
+      pending,
+      failed,
+      lastSentAt: lastSent?.sentAt ? Math.floor(lastSent.sentAt.getTime() / 1000) : null,
+      maxAttempts: MAX_ATTEMPTS,
+    };
   }
 
   async enqueue(typeWebhook, payload) {

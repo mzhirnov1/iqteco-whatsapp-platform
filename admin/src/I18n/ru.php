@@ -55,6 +55,8 @@ return [
     'webhook_log.actions' => 'Действия',
     'webhook_log.retry' => 'Повторить',
     'webhook_log.empty' => 'Нет записей',
+    'webhook_log.retry_all_failed' => 'Повторить все failed ({n})',
+    'webhook_log.confirm_retry_all' => 'Перезапланировать {n} проваленных webhook? Они уйдут в очередь с попыткой 1.',
 
     'instance.show.traffic' => 'Трафик (IPv6)',
     'instance.show.logs' => 'Логи контейнера',

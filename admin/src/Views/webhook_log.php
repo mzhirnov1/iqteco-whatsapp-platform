@@ -18,6 +18,30 @@ $badge = function (?string $s): string {
 
 <p><a href="/instances/<?= View::e($idInstance) ?>">← <?= View::e(I18n::t('webhook_log.back')) ?></a></p>
 
+<?php
+$pendingCount = $pendingCount ?? 0;
+$failedCount = $failedCount ?? 0;
+if ($pendingCount > 0 || $failedCount > 0):
+    $retriedJust = isset($_GET['retried']) ? (int)$_GET['retried'] : null;
+?>
+<div class="webhook-queue-bar">
+    <?php if ($retriedJust !== null): ?>
+        <div class="alert alert-info">✓ Re-queued <?= $retriedJust ?> failed webhook(s)</div>
+    <?php endif; ?>
+    <span class="muted">Outbox:</span>
+    <span class="badge badge-warn"><?= $pendingCount ?> pending</span>
+    <span class="badge badge-error"><?= $failedCount ?> failed</span>
+    <?php if ($failedCount > 0): ?>
+        <form method="post" action="/instances/<?= View::e($idInstance) ?>/webhooks/retry-all-failed"
+              onsubmit="return confirm('<?= View::e(I18n::t('webhook_log.confirm_retry_all', ['n' => $failedCount])) ?>')"
+              class="inline-form">
+            <?= Csrf::field() ?>
+            <button type="submit" class="btn btn-primary btn-small">🔁 <?= View::e(I18n::t('webhook_log.retry_all_failed', ['n' => $failedCount])) ?></button>
+        </form>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
+
 <form method="get" class="filter-form">
     <label>
         <span>type</span>
