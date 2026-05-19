@@ -18,6 +18,7 @@ return [
     'dashboard.last_seen' => 'Last seen',
     'dashboard.actions' => 'Actions',
     'dashboard.view' => 'Open',
+    'dashboard.owner' => 'Owner / portal',
     'dashboard.empty' => 'No instances yet.',
     'dashboard.create_first' => 'Create the first one',
 

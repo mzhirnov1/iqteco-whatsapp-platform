@@ -50,6 +50,7 @@ $relTime = function ($utc): string {
             <th>idInstance</th>
             <th><?= View::e(I18n::t('dashboard.state')) ?></th>
             <th><?= View::e(I18n::t('dashboard.phone')) ?></th>
+            <th><?= View::e(I18n::t('dashboard.owner')) ?></th>
             <th>IPv6</th>
             <th><?= View::e(I18n::t('dashboard.last_seen')) ?></th>
             <th><?= View::e(I18n::t('dashboard.actions')) ?></th>
@@ -57,7 +58,7 @@ $relTime = function ($utc): string {
     </thead>
     <tbody>
     <?php if (empty($instances)): ?>
-        <tr><td colspan="6" class="empty"><?= View::e(I18n::t('dashboard.empty')) ?> <a href="/instances/new"><?= View::e(I18n::t('dashboard.create_first')) ?></a></td></tr>
+        <tr><td colspan="7" class="empty"><?= View::e(I18n::t('dashboard.empty')) ?> <a href="/instances/new"><?= View::e(I18n::t('dashboard.create_first')) ?></a></td></tr>
     <?php else: foreach ($instances as $i): ?>
         <?php
         $trafficBadge = match ($i['trafficStatus'] ?? null) {
@@ -74,10 +75,21 @@ $relTime = function ($utc): string {
             $wbBadge = '<span class="badge badge-warn">' . (int)$ws['pending'] . ' queued</span>';
         }
         ?>
+        <?php
+        $owner = (string)($i['ownerId'] ?? '');
+        if ($owner === '__pool__') {
+            $ownerCell = '<span class="badge badge-neutral">warm pool</span>';
+        } elseif ($owner === '') {
+            $ownerCell = '<span class="muted">—</span>';
+        } else {
+            $ownerCell = '<code title="' . View::e($owner) . '">' . View::e(mb_strlen($owner) > 28 ? mb_substr($owner, 0, 25) . '…' : $owner) . '</code>';
+        }
+        ?>
         <tr>
             <td><a href="/instances/<?= View::e($iid) ?>"><?= View::e($iid) ?></a></td>
             <td><?= $stateBadge($i['state'] ?? null) ?> <?= $trafficBadge ?> <?= $wbBadge ?></td>
             <td><?= View::e((string)($i['phoneNumber'] ?? '—')) ?></td>
+            <td><?= $ownerCell ?></td>
             <td class="ipv6"><?= View::e((string)($i['ipv6'] ?? '—')) ?></td>
             <td><?= View::e($relTime($i['lastSeen'] ?? null)) ?></td>
             <td><a href="/instances/<?= View::e($iid) ?>"><?= View::e(I18n::t('dashboard.view')) ?></a></td>

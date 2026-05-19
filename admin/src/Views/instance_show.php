@@ -24,10 +24,15 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
 <div class="instance-grid">
     <div class="card">
         <h2><?= View::e(I18n::t('instance.show.info')) ?></h2>
+        <?php
+        $owner = (string)($instance['ownerId'] ?? '');
+        $ownerDisplay = $owner === '__pool__' ? '🟡 warm pool (готов к выдаче)' : ($owner === '' ? '—' : $owner);
+        ?>
         <dl>
             <dt>idInstance</dt><dd><?= View::e($id) ?></dd>
             <dt>state</dt><dd id="instance-state"><?= View::e($state) ?></dd>
             <dt>phone</dt><dd><?= View::e((string)($instance['phoneNumber'] ?? '—')) ?></dd>
+            <dt>owner / portal</dt><dd><code><?= View::e($ownerDisplay) ?></code></dd>
             <dt>IPv6</dt><dd class="ipv6"><?= View::e((string)($instance['ipv6'] ?? '—')) ?></dd>
             <dt><?= View::e(I18n::t('instance.show.last_seen')) ?></dt><dd><?= View::e($lastSeenStr) ?></dd>
             <dt>webhookUrl</dt><dd><?= View::e((string)($instance['webhookUrl'] ?? '—')) ?></dd>

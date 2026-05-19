@@ -18,6 +18,7 @@ return [
     'dashboard.last_seen' => 'Последняя активность',
     'dashboard.actions' => 'Действия',
     'dashboard.view' => 'Открыть',
+    'dashboard.owner' => 'Владелец / портал',
     'dashboard.empty' => 'Инстансов пока нет.',
     'dashboard.create_first' => 'Создать первый',
 
