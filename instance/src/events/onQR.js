@@ -8,14 +8,15 @@ module.exports = (ctx) => async (qr) => {
   ctx.qrCache.expiresAt = expiresAt;
 
   try {
-    const pngDataUrl = await qrcode.toDataURL(qr, { errorCorrectionLevel: 'M', margin: 1 });
+    const pngDataUrl = await qrcode.toDataURL(qr, { errorCorrectionLevel: 'M', margin: 1, width: 280 });
     ctx.qrCache.pngBase64 = pngDataUrl.replace(/^data:image\/png;base64,/, '');
   } catch (err) {
     ctx.logger.warn({ err: err.message }, 'onQR: failed to render PNG');
   }
 
   try {
-    await ctx.adminClient.sendQr({ qr, expiresAt, kind: 'qr' });
+    // Admin UI renders <img src="data:image/png;base64,..."> so send the PNG, not the raw qr string.
+    await ctx.adminClient.sendQr({ qr: ctx.qrCache.pngBase64 || qr, expiresAt, kind: 'qr' });
   } catch (err) {
     ctx.logger.warn({ err: err.message }, 'onQR: failed to notify admin');
   }
