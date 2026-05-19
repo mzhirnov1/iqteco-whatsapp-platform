@@ -54,11 +54,64 @@
         if (state.avatars.has(chatId)) return state.avatars.get(chatId);
         try {
             const res = await fetch(apiUrl('/avatar') + '?chatId=' + encodeURIComponent(chatId), { credentials: 'same-origin' });
-            const d = await res.json();
+            const d = await res.json().catch(() => ({}));
             const url = d.urlAvatar || '';
-            state.avatars.set(chatId, url);
+            state.avatars.set(chatId, url);   // cache empty result too
             return url;
-        } catch { return ''; }
+        } catch {
+            state.avatars.set(chatId, '');    // negative cache on network error
+            return '';
+        }
+    }
+
+    // --- Avatar load: concurrency-limited queue + IntersectionObserver ---
+    const AVATAR_CONCURRENCY = 4;
+    let _avatarActive = 0;
+    const _avatarQueue = [];
+    let _avatarObserver = null;
+
+    function _applyAvatar(el, url) {
+        if (!url) return;
+        el.style.backgroundImage = `url("${url}")`;
+        el.classList.add('has-image');
+        el.textContent = '';
+    }
+
+    function _avatarWorker() {
+        while (_avatarActive < AVATAR_CONCURRENCY && _avatarQueue.length) {
+            const chatId = _avatarQueue.shift();
+            _avatarActive++;
+            fetchAvatar(chatId).finally(() => {
+                _avatarActive--;
+                const url = state.avatars.get(chatId);
+                if (url) {
+                    document.querySelectorAll(
+                        '.wweb-avatar[data-avatar="' + (window.CSS && CSS.escape ? CSS.escape(chatId) : chatId.replace(/"/g, '\\"')) + '"]'
+                    ).forEach((el) => _applyAvatar(el, url));
+                }
+                _avatarWorker();
+            });
+        }
+    }
+
+    function ensureAvatarObserver() {
+        if (_avatarObserver) return _avatarObserver;
+        _avatarObserver = new IntersectionObserver((entries) => {
+            for (const e of entries) {
+                if (!e.isIntersecting) continue;
+                const el = e.target;
+                _avatarObserver.unobserve(el);
+                const cid = el.dataset.avatar;
+                if (!cid) continue;
+                if (state.avatars.has(cid)) {
+                    _applyAvatar(el, state.avatars.get(cid));
+                    continue;
+                }
+                if (!_avatarQueue.includes(cid)) _avatarQueue.push(cid);
+                _avatarWorker();
+            }
+        }, { root: document.getElementById('wweb-chats'), rootMargin: '120px' });
+        return _avatarObserver;
     }
 
     // --- DOM helpers ---
@@ -104,6 +157,9 @@
             : list;
 
         const ul = $('#wweb-chats');
+        // Drop any prior IntersectionObserver hooks — the DOM nodes will be replaced
+        if (_avatarObserver) _avatarObserver.disconnect();
+
         if (filtered.length === 0) {
             ul.innerHTML = '<li class="wweb-chats-empty">' + (list.length === 0 ? 'no chats yet' : 'no matches') + '</li>';
             return;
@@ -123,16 +179,15 @@
             </li>`;
         }).join('');
 
-        // Lazy load avatars
-        ul.querySelectorAll('.wweb-avatar[data-avatar]').forEach(el => {
+        // Lazy avatar loading: observe rows, only fetch when scrolled into view
+        const ob = ensureAvatarObserver();
+        ul.querySelectorAll('.wweb-avatar[data-avatar]').forEach((el) => {
             const cid = el.dataset.avatar;
-            fetchAvatar(cid).then(url => {
-                if (url) {
-                    el.style.backgroundImage = `url("${url}")`;
-                    el.classList.add('has-image');
-                    el.textContent = '';
-                }
-            });
+            if (state.avatars.has(cid)) {
+                _applyAvatar(el, state.avatars.get(cid));
+            } else {
+                ob.observe(el);
+            }
         });
 
         ul.querySelectorAll('.wweb-chat-item').forEach(el => {
