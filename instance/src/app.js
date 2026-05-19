@@ -122,7 +122,7 @@ async function main() {
   }));
   mountRoutes(app, ctx);
 
-  const server = app.listen(config.httpPort, '0.0.0.0', () => {
+  const server = app.listen(config.httpPort, '::', () => {
     logger.info({ port: config.httpPort }, 'HTTP listening');
   });
 

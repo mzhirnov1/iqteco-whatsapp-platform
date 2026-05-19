@@ -87,7 +87,7 @@ final class InstanceManager
                 'env' => [
                     'IDINSTANCE' => $idInstance,
                     'API_TOKEN' => $apiToken,
-                    'MONGO_URL' => getenv('CONTAINER_MONGO_URL') ?: $this->config['mongo']['uri'],
+                    'MONGO_URL' => wa_env('CONTAINER_MONGO_URL') ?: $this->config['mongo']['uri'],
                     'ADMIN_URL' => $this->config['admin']['base_url'],
                     'ADMIN_TOKEN' => $this->config['admin']['shared_token'],
                     'WEBHOOK_URL' => $webhookUrl,
@@ -133,7 +133,7 @@ final class InstanceManager
                 'env' => [
                     'IDINSTANCE' => $idInstance,
                     'API_TOKEN' => $inst['apiToken'],
-                    'MONGO_URL' => getenv('CONTAINER_MONGO_URL') ?: $this->config['mongo']['uri'],
+                    'MONGO_URL' => wa_env('CONTAINER_MONGO_URL') ?: $this->config['mongo']['uri'],
                     'ADMIN_URL' => $this->config['admin']['base_url'],
                     'ADMIN_TOKEN' => $this->config['admin']['shared_token'],
                     'WEBHOOK_URL' => $inst['webhookUrl'] ?? '',

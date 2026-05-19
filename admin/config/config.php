@@ -1,25 +1,40 @@
 <?php
 declare(strict_types=1);
 
+// Load .env if available
+$envPath = dirname(__DIR__);
+if (is_file($envPath . '/.env') && class_exists('\\Dotenv\\Dotenv')) {
+    \Dotenv\Dotenv::createImmutable($envPath)->safeLoad();
+}
+
+if (!function_exists('wa_env')) {
+    function wa_env(string $name, ?string $default = null): ?string {
+        $v = $_ENV[$name] ?? $_SERVER[$name] ?? null;
+        if ($v !== null) return (string)$v;
+        $g = getenv($name);
+        return $g !== false ? $g : $default;
+    }
+}
+
 return [
     'mongo' => [
-        'uri' => getenv('MONGO_URL') ?: 'mongodb://127.0.0.1:27017',
-        'database' => getenv('MONGO_DB') ?: 'iqteco_wa',
+        'uri' => wa_env('MONGO_URL') ?: 'mongodb://127.0.0.1:27017',
+        'database' => wa_env('MONGO_DB') ?: 'iqteco_wa',
     ],
     'admin' => [
-        'shared_token' => getenv('ADMIN_TOKEN') ?: '',
-        'base_url' => getenv('ADMIN_BASE_URL') ?: 'https://admin.wa.iqteco.com',
+        'shared_token' => wa_env('ADMIN_TOKEN') ?: '',
+        'base_url' => wa_env('ADMIN_BASE_URL') ?: 'https://admin.wa.iqteco.com',
         'session_lifetime' => 86400,
     ],
     'podman' => [
         'binary' => '/usr/bin/podman',
         'sudo_binary' => '/usr/bin/sudo',
-        'image' => getenv('WA_IMAGE') ?: 'ghcr.io/mzhirnov1/iqteco-whatsapp-platform/wa-instance:latest',
+        'image' => wa_env('WA_IMAGE') ?: 'ghcr.io/mzhirnov1/iqteco-whatsapp-platform/wa-instance:latest',
         'network' => 'wa-net',
         'name_prefix' => 'wa-',
     ],
     'ip_pool' => [
-        'prefix' => getenv('IPV6_PREFIX') ?: '2a01:4f8:221:2d8d:c0a8:',
+        'prefix' => wa_env('IPV6_PREFIX') ?: '2a01:4f8:221:2d8d:c0a8::',
         'subnet_bits' => 80,
         'reserved_offset' => 1,
         'reserved_count' => 255,
@@ -29,7 +44,7 @@ return [
         'reload_cmd' => '/usr/sbin/nginx -s reload',
     ],
     'webhook' => [
-        'default_url' => getenv('DEFAULT_WEBHOOK_URL') ?: '',
+        'default_url' => wa_env('DEFAULT_WEBHOOK_URL') ?: '',
         'log_ttl_days' => 30,
     ],
     'traffic' => [
@@ -39,7 +54,7 @@ return [
         'alert_threshold' => 0.8,
     ],
     'app' => [
-        'debug' => getenv('APP_DEBUG') === '1',
+        'debug' => wa_env('APP_DEBUG') === '1',
         'default_locale' => 'ru',
     ],
 ];

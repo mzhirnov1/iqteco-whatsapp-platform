@@ -33,9 +33,14 @@ $skipped = 0;
 
 for ($i = 0; $i < $count; $i++) {
     $suffix = $offset + $i;
-    $high = ($suffix >> 16) & 0xffff;
-    $low = $suffix & 0xffff;
-    $ipv6 = sprintf('%s%x:%x', $prefix, $high, $low);
+    // Use IPv6 zero-compression. Prefix may or may not end with "::".
+    $sep = str_ends_with($prefix, '::') ? '' : (str_ends_with($prefix, ':') ? ':' : '::');
+    $rawIpv6 = sprintf('%s%s%x', $prefix, $sep, $suffix);
+    $packed = @inet_pton($rawIpv6);
+    if ($packed === false) {
+        throw new \RuntimeException("Invalid generated IPv6: $rawIpv6");
+    }
+    $ipv6 = inet_ntop($packed);
 
     try {
         $pool->insertOne([
