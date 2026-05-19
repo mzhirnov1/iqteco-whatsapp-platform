@@ -9,6 +9,7 @@ use Iqteco\WaAdmin\Services\InstanceManager;
 use Iqteco\WaAdmin\Services\IpPoolManager;
 use Iqteco\WaAdmin\Services\Logger;
 use Iqteco\WaAdmin\Services\MongoClient;
+use Iqteco\WaAdmin\Services\NftablesManager;
 use Iqteco\WaAdmin\Services\NginxMapManager;
 use Iqteco\WaAdmin\Services\PodmanRunner;
 use Iqteco\WaAdmin\Services\View;
@@ -26,6 +27,7 @@ final class InstanceController
             new IpPoolManager($this->config, $log),
             new PodmanRunner($this->config, $log),
             new NginxMapManager($this->config, $log),
+            new NftablesManager($this->config, $log),
         );
     }
 

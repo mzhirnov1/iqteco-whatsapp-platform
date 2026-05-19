@@ -26,6 +26,9 @@ return [
     ['GET',  '#^/instances/(?P<id>\d+)/webhooks/(?P<logId>[a-f0-9]{24})$#',  [\Iqteco\WaAdmin\Controllers\WebhookLogController::class, 'show']],
     ['POST', '#^/instances/(?P<id>\d+)/webhooks/(?P<logId>[a-f0-9]{24})/retry$#', [\Iqteco\WaAdmin\Controllers\WebhookLogController::class, 'retry']],
 
+    ['GET',  '#^/api/instances/(?P<id>\d+)/traffic$#',  [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'traffic']],
+    ['GET',  '#^/api/instances/(?P<id>\d+)/logs$#',     [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'logs']],
+
     ['GET',  '#^/settings$#',                            [SettingsController::class, 'index']],
 
     // REST API for containers (auth: X-Admin-Token)

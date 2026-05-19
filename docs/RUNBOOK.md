@@ -76,17 +76,38 @@ bash deploy/scripts/ipv6-ndp-init.sh
 ## Бэкапы
 
 ```bash
-# MongoDB полный дамп (cron daily)
-mongodump --uri="mongodb://wa_admin:PWD@127.0.0.1/iqteco_wa" --gzip --archive=/var/backup/mongo-$(date +%F).gz
+# MongoDB полный дамп (включая GridFS sessions и wa_media). Cron daily.
+bash /var/www/admin.wa.iqteco.com/scripts/backup.sh
+# → /var/backup/wa/wa-YYYY-MM-DD_HH-MM-SS.gz (retention 14 дней)
 
-# GridFS sessions (отдельно для удобства)
-php scripts/session-export.php --out=/var/backup/wa-sessions
+# Восстановление:
+mongorestore --uri="mongodb://wa_admin@127.0.0.1/iqteco_wa?authSource=iqteco_wa" \
+    --gzip --archive=/var/backup/wa/wa-XXX.gz --drop
+```
+
+## Traffic monitoring
+
+- nftables-таблица `wa_traffic` создаётся через `wa-nft-init-table`
+- Counters per IPv6 (in/out) добавляются автоматически при создании инстанса
+- `wa-traffic-poller.timer` опрашивает counters каждую минуту, дельта пишется в `traffic` коллекцию (buckets hour/day/month)
+- Алерты — поле `trafficStatus` на инстансе (`ok` / `warning` ≥80% / `exceeded` >100%)
+
+```bash
+# Проверить текущие counters
+sudo /usr/sbin/nft -j list table inet wa_traffic | jq '.nftables[] | select(.counter)'
+
+# Логи poller
+tail -f /var/log/wa/traffic-poll.log
+
+# Принудительный запуск
+sudo -u www-data /usr/bin/php /var/www/admin.wa.iqteco.com/scripts/wa-traffic-poll.php
 ```
 
 ## Алерты
 
-- Traffic >80% suite ловится в `traffic_warning` бейдже на инстансе. См. `wa-traffic-poller.service`.
-- `lastSeen` старше 5 минут — контейнер мёртв, проверить `systemctl status wa-instance@{id}`.
+- Traffic >80% → бейдж `⚠ 80%` в dashboard, `⛔ over` если превышено
+- `lastSeen` старше 5 минут → проверить `systemctl status wa-instance@{id}`
+- Webhook log в админке (`/instances/{id}/webhooks`) показывает все попытки; retry для failed
 
 ## Связаться
 

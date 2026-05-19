@@ -59,9 +59,16 @@ $relTime = function ($utc): string {
     <?php if (empty($instances)): ?>
         <tr><td colspan="6" class="empty"><?= View::e(I18n::t('dashboard.empty')) ?> <a href="/instances/new"><?= View::e(I18n::t('dashboard.create_first')) ?></a></td></tr>
     <?php else: foreach ($instances as $i): ?>
+        <?php
+        $trafficBadge = match ($i['trafficStatus'] ?? null) {
+            'warning' => '<span class="badge badge-traffic-warning">⚠ 80%</span>',
+            'exceeded' => '<span class="badge badge-traffic-exceeded">⛔ over</span>',
+            default => '',
+        };
+        ?>
         <tr>
             <td><a href="/instances/<?= View::e((string)$i['idInstance']) ?>"><?= View::e((string)$i['idInstance']) ?></a></td>
-            <td><?= $stateBadge($i['state'] ?? null) ?></td>
+            <td><?= $stateBadge($i['state'] ?? null) ?> <?= $trafficBadge ?></td>
             <td><?= View::e((string)($i['phoneNumber'] ?? '—')) ?></td>
             <td class="ipv6"><?= View::e((string)($i['ipv6'] ?? '—')) ?></td>
             <td><?= View::e($relTime($i['lastSeen'] ?? null)) ?></td>

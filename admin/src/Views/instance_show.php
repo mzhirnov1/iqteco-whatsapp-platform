@@ -37,6 +37,23 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
 </div>
 
 <div class="card">
+    <h2><?= View::e(I18n::t('instance.show.traffic')) ?></h2>
+    <div id="traffic-bars">
+        <div class="traffic-row"><span class="traffic-label">Hour</span><div class="traffic-bar"><div id="bar-hour" class="traffic-fill"></div></div><span id="val-hour" class="traffic-val">—</span></div>
+        <div class="traffic-row"><span class="traffic-label">Day</span><div class="traffic-bar"><div id="bar-day" class="traffic-fill"></div></div><span id="val-day" class="traffic-val">—</span></div>
+        <div class="traffic-row"><span class="traffic-label">Month</span><div class="traffic-bar"><div id="bar-month" class="traffic-fill"></div></div><span id="val-month" class="traffic-val">—</span></div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>
+        <?= View::e(I18n::t('instance.show.logs')) ?>
+        <button type="button" id="logs-refresh" class="btn btn-small"><?= View::e(I18n::t('instance.show.logs_refresh')) ?></button>
+    </h2>
+    <pre id="logs-output" class="logs-output">—</pre>
+</div>
+
+<div class="card">
     <h2><?= View::e(I18n::t('instance.show.actions')) ?></h2>
     <div class="actions">
         <form method="post" action="/instances/<?= View::e($id) ?>/reboot">
@@ -107,5 +124,58 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
         }
     }
     poll();
+})();
+
+(function () {
+    const id = <?= json_encode($id) ?>;
+    const fmt = (b) => {
+        if (b < 1024) return b + ' B';
+        if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+        if (b < 1024*1024*1024) return (b/1024/1024).toFixed(1) + ' MB';
+        return (b/1024/1024/1024).toFixed(2) + ' GB';
+    };
+    async function refreshTraffic() {
+        try {
+            const res = await fetch('/api/instances/' + id + '/traffic', { credentials: 'same-origin' });
+            if (!res.ok) return;
+            const d = await res.json();
+            const limits = d.limits || {};
+            for (const k of ['hour', 'day', 'month']) {
+                const used = (d[k]?.bytesIn || 0) + (d[k]?.bytesOut || 0);
+                const lim = limits[k] || 1;
+                const pct = Math.min(100, (used / lim) * 100);
+                const bar = document.getElementById('bar-' + k);
+                const val = document.getElementById('val-' + k);
+                if (bar) {
+                    bar.style.width = pct + '%';
+                    bar.classList.remove('over-80', 'over-100');
+                    if (pct >= 100) bar.classList.add('over-100');
+                    else if (pct >= 80) bar.classList.add('over-80');
+                }
+                if (val) val.textContent = fmt(used) + ' / ' + fmt(lim) + ' (' + pct.toFixed(0) + '%)';
+            }
+        } catch (e) { /* ignore */ }
+        setTimeout(refreshTraffic, 30000);
+    }
+    refreshTraffic();
+})();
+
+(function () {
+    const id = <?= json_encode($id) ?>;
+    const out = document.getElementById('logs-output');
+    const btn = document.getElementById('logs-refresh');
+    async function load() {
+        out.textContent = 'loading…';
+        try {
+            const res = await fetch('/api/instances/' + id + '/logs?tail=200', { credentials: 'same-origin' });
+            if (!res.ok) { out.textContent = 'error: ' + res.status; return; }
+            const d = await res.json();
+            out.textContent = d.logs || '(empty)';
+        } catch (e) {
+            out.textContent = 'exception: ' + e.message;
+        }
+    }
+    btn.addEventListener('click', load);
+    load();
 })();
 </script>

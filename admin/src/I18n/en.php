@@ -55,4 +55,8 @@ return [
     'webhook_log.actions' => 'Actions',
     'webhook_log.retry' => 'Retry',
     'webhook_log.empty' => 'No records',
+
+    'instance.show.traffic' => 'Traffic (per IPv6)',
+    'instance.show.logs' => 'Container logs',
+    'instance.show.logs_refresh' => 'Refresh',
 ];

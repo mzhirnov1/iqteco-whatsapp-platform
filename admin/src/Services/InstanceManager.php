@@ -14,6 +14,7 @@ final class InstanceManager
         private readonly IpPoolManager $ipPool,
         private readonly PodmanRunner $podman,
         private readonly NginxMapManager $nginx,
+        private readonly ?NftablesManager $nft = null,
     ) {}
 
     /**
@@ -102,6 +103,11 @@ final class InstanceManager
             throw $e;
         }
 
+        // Step 4: nftables counters
+        if ($this->nft) {
+            $this->nft->addCounters($idInstance, $ipv6);
+        }
+
         $this->logger->info('InstanceManager: created', [
             'idInstance' => $idInstance, 'ipv6' => $ipv6, 'containerName' => $containerName,
         ]);
@@ -161,6 +167,10 @@ final class InstanceManager
 
         $this->podman->stop($inst['containerName']);
         $this->podman->rm($inst['containerName']);
+
+        if ($this->nft) {
+            $this->nft->removeCounters($idInstance);
+        }
 
         MongoClient::db($this->config)->selectCollection('instances')->updateOne(
             ['idInstance' => $idInstance],

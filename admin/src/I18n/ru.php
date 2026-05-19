@@ -55,4 +55,8 @@ return [
     'webhook_log.actions' => 'Действия',
     'webhook_log.retry' => 'Повторить',
     'webhook_log.empty' => 'Нет записей',
+
+    'instance.show.traffic' => 'Трафик (IPv6)',
+    'instance.show.logs' => 'Логи контейнера',
+    'instance.show.logs_refresh' => 'Обновить',
 ];
