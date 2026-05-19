@@ -63,6 +63,13 @@ final class ApiInstanceController
         $body = $this->readJson();
         $set = ['lastSeen' => new UTCDateTime()];
         if (isset($body['state'])) $set['state'] = $body['state'];
+        if (!empty($body['wid'])) {
+            $set['wid'] = (string)$body['wid'];
+            // derive phoneNumber from wid (digits before @)
+            if (preg_match('/^(\d+)@/', (string)$body['wid'], $m)) {
+                $set['phoneNumber'] = $m[1];
+            }
+        }
         if (isset($body['lastEventAt'])) {
             $set['lastEventAt'] = new UTCDateTime((int)$body['lastEventAt'] * 1000);
         }
