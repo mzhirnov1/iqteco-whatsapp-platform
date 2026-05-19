@@ -25,7 +25,7 @@ final class InstanceProxyController
         'sendMessage', 'sendFileByUrl', 'sendImageByUrl', 'sendFileByUpload',
         'sendLocation', 'sendContact', 'forwardMessages', 'markChatAsRead',
         // queries
-        'checkWhatsapp', 'getContacts', 'getContactInfo', 'getAvatar',
+        'checkWhatsapp', 'getContacts', 'getChats', 'getContactInfo', 'getAvatar',
         'getChatHistory', 'lastIncomingMessages', 'lastOutgoingMessages',
         // edit / delete
         'editMessage', 'deleteMessage', 'archiveChat', 'unarchiveChat',

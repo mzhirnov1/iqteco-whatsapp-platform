@@ -64,8 +64,10 @@ final class InstanceApiController
     }
 
     /**
-     * Aggregated chat list for WhatsApp Web UI sidebar.
-     * Builds list from getContacts + lastIncoming + lastOutgoing, sorted by recency.
+     * Full chat list for WhatsApp Web UI sidebar.
+     * Primary source: container's /getChats (uses wweb.js client.getChats(),
+     * returns everything that's visible in WhatsApp Web). Falls back to
+     * lastIncoming + lastOutgoing if getChats fails.
      */
     public function chatList(array $params): void
     {
@@ -85,9 +87,35 @@ final class InstanceApiController
 
         $base = sprintf('http://[%s]:8080/waInstance%s', $instance['ipv6'], $idInstance);
         $tok = $instance['apiToken'];
-        $minutes = max(1, min(10080, (int)($_GET['minutes'] ?? 1440)));
 
-        // Fetch in parallel via curl_multi
+        // Primary: /getChats (fast, complete list as in WhatsApp Web)
+        $ch = curl_init("$base/getChats/$tok");
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $list = ($resp && $code === 200) ? json_decode((string)$resp, true) : null;
+
+        if (is_array($list) && !empty($list)) {
+            // normalize fields for sidebar JS (it expects chatId/name/lastMessage/timestamp)
+            $list = array_map(function ($c) {
+                return [
+                    'chatId' => $c['chatId'],
+                    'name' => $c['name'] ?? $c['chatId'],
+                    'isGroup' => !!($c['isGroup'] ?? false),
+                    'lastMessage' => $c['lastMessage'] ?? '',
+                    'timestamp' => $c['lastTimestamp'] ?? 0,
+                    'unread' => (int)($c['unreadCount'] ?? 0),
+                ];
+            }, $list);
+            header('Content-Type: application/json');
+            echo json_encode($list);
+            return;
+        }
+
+        // Fallback: aggregate from MessageStore (lastIncoming + lastOutgoing)
+        $minutes = max(1, min(10080, (int)($_GET['minutes'] ?? 1440)));
         $mh = curl_multi_init();
         $urls = [
             'incoming' => "$base/lastIncomingMessages/$tok?minutes=$minutes",
@@ -95,10 +123,10 @@ final class InstanceApiController
         ];
         $handles = [];
         foreach ($urls as $key => $u) {
-            $ch = curl_init($u);
-            curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15]);
-            curl_multi_add_handle($mh, $ch);
-            $handles[$key] = $ch;
+            $h = curl_init($u);
+            curl_setopt_array($h, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15]);
+            curl_multi_add_handle($mh, $h);
+            $handles[$key] = $h;
         }
         do {
             curl_multi_exec($mh, $running);
@@ -106,48 +134,32 @@ final class InstanceApiController
         } while ($running > 0);
 
         $results = [];
-        foreach ($handles as $key => $ch) {
-            $resp = curl_multi_getcontent($ch);
-            $results[$key] = json_decode((string)$resp, true) ?: [];
-            curl_multi_remove_handle($mh, $ch);
-            curl_close($ch);
+        foreach ($handles as $key => $h) {
+            $r = curl_multi_getcontent($h);
+            $results[$key] = json_decode((string)$r, true) ?: [];
+            curl_multi_remove_handle($mh, $h);
+            curl_close($h);
         }
         curl_multi_close($mh);
 
-        // Merge into one map keyed by chatId
         $chats = [];
-        foreach ($results['incoming'] as $m) {
-            $cid = $m['chatId'] ?? null;
-            if (!$cid) continue;
-            $ts = (int)($m['timestamp'] ?? 0);
-            if (!isset($chats[$cid]) || $ts > ($chats[$cid]['timestamp'] ?? 0)) {
-                $chats[$cid] = [
-                    'chatId' => $cid,
-                    'name' => $m['senderName'] ?? $cid,
-                    'lastMessage' => $m['textMessage'] ?? ('[' . ($m['typeMessage'] ?? '') . ']'),
-                    'timestamp' => $ts,
-                    'direction' => 'incoming',
-                ];
+        foreach (['incoming', 'outgoing'] as $dir) {
+            foreach ($results[$dir] ?? [] as $m) {
+                $cid = $m['chatId'] ?? null;
+                if (!$cid) continue;
+                $ts = (int)($m['timestamp'] ?? 0);
+                if (!isset($chats[$cid]) || $ts > ($chats[$cid]['timestamp'] ?? 0)) {
+                    $chats[$cid] = [
+                        'chatId' => $cid,
+                        'name' => $m['senderName'] ?? ($chats[$cid]['name'] ?? $cid),
+                        'lastMessage' => $m['textMessage'] ?? ('[' . ($m['typeMessage'] ?? '') . ']'),
+                        'timestamp' => $ts,
+                    ];
+                }
             }
         }
-        foreach ($results['outgoing'] as $m) {
-            $cid = $m['chatId'] ?? null;
-            if (!$cid) continue;
-            $ts = (int)($m['timestamp'] ?? 0);
-            if (!isset($chats[$cid]) || $ts > ($chats[$cid]['timestamp'] ?? 0)) {
-                $chats[$cid] = [
-                    'chatId' => $cid,
-                    'name' => $chats[$cid]['name'] ?? $cid,
-                    'lastMessage' => $m['textMessage'] ?? ('[' . ($m['typeMessage'] ?? '') . ']'),
-                    'timestamp' => $ts,
-                    'direction' => 'outgoing',
-                ];
-            }
-        }
-
         $list = array_values($chats);
         usort($list, fn($a, $b) => ($b['timestamp'] ?? 0) <=> ($a['timestamp'] ?? 0));
-
         header('Content-Type: application/json');
         echo json_encode($list);
     }
