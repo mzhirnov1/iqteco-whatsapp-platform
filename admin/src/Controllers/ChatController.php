@@ -8,8 +8,9 @@ use Iqteco\WaAdmin\Services\MongoClient;
 use Iqteco\WaAdmin\Services\View;
 
 /**
- * Test chat UI: страница для отправки сообщений и просмотра истории
- * прямо из админки. Использует instance-HTTP-API через ProxyController.
+ * WhatsApp Web-like UI: страница /instances/{id}/chat
+ * Все методы (text/file/image/upload/location/contact/forward/edit/delete/markRead)
+ * вызываются через InstanceProxyController.
  */
 final class ChatController
 {
@@ -21,7 +22,10 @@ final class ChatController
 
         $instance = MongoClient::db($this->config)->selectCollection('instances')->findOne(
             ['idInstance' => (string)$params['id']],
-            ['projection' => ['idInstance' => 1, 'apiToken' => 1, 'ipv6' => 1, 'state' => 1, 'phoneNumber' => 1]]
+            ['projection' => [
+                'idInstance' => 1, 'apiToken' => 1, 'ipv6' => 1,
+                'state' => 1, 'phoneNumber' => 1, 'wid' => 1,
+            ]],
         );
         if (!$instance) {
             http_response_code(404);
@@ -29,6 +33,6 @@ final class ChatController
             return;
         }
 
-        View::renderLayout('chat', ['instance' => $instance]);
+        View::renderLayout('web_chat', ['instance' => $instance]);
     }
 }

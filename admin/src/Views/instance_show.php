@@ -12,6 +12,15 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
 ?>
 <h1><?= View::e(I18n::t('instance.show.title', ['id' => $id])) ?></h1>
 
+<nav class="instance-subnav">
+    <a class="btn btn-primary btn-lg" href="/instances/<?= View::e($id) ?>/chat">💬 Open WhatsApp Web</a>
+    <a class="btn" href="/instances/<?= View::e($id) ?>/webhooks">📋 Webhook log</a>
+    <span class="badge badge-state-<?= View::e((string)$state) ?>"><?= View::e((string)$state) ?></span>
+    <?php if (!empty($instance['ipv6'])): ?>
+        <span class="muted">IPv6: <code><?= View::e((string)$instance['ipv6']) ?></code></span>
+    <?php endif; ?>
+</nav>
+
 <div class="instance-grid">
     <div class="card">
         <h2><?= View::e(I18n::t('instance.show.info')) ?></h2>
@@ -69,8 +78,6 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
             <label class="inline"><input type="checkbox" name="banned" value="1"> <?= View::e(I18n::t('instance.show.banned_label')) ?></label>
             <button type="submit" class="btn btn-danger"><?= View::e(I18n::t('instance.show.delete')) ?></button>
         </form>
-        <a class="btn" href="/instances/<?= View::e($id) ?>/webhooks"><?= View::e(I18n::t('instance.show.webhook_log')) ?></a>
-        <a class="btn btn-primary" href="/instances/<?= View::e($id) ?>/chat"><?= View::e(I18n::t('instance.show.test_chat')) ?></a>
     </div>
 </div>
 

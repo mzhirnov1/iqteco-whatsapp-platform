@@ -1,0 +1,309 @@
+/* WhatsApp Web-like UI — двухколоночный layout */
+
+.wweb-root {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    height: calc(100vh - 80px);
+    margin: -24px -24px 0;
+    background: #f0f2f5;
+    font-size: 14px;
+}
+@media (max-width: 760px) {
+    .wweb-root { grid-template-columns: 1fr; }
+    .wweb-main { display: none; }
+    .wweb-root.has-active .wweb-sidebar { display: none; }
+    .wweb-root.has-active .wweb-main { display: block; }
+}
+
+/* --- Sidebar --- */
+.wweb-sidebar {
+    background: #fff;
+    border-right: 1px solid #e5e7eb;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.wweb-side-header {
+    background: #f0f2f5;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e5e7eb;
+}
+.wweb-profile { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.wweb-profile-info { flex: 1; min-width: 0; }
+.wweb-profile-name {
+    font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wweb-profile-state { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.badge-state-authorized { color: #16a34a; }
+.badge-state-starting, .badge-state-notAuthorized { color: #d97706; }
+.badge-state-sleepMode, .badge-state-blocked { color: #dc2626; }
+
+.wweb-search {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: #fff;
+    font-size: 13px;
+}
+.wweb-search:focus { outline: 1px solid #2563eb; }
+
+.wweb-chats {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    flex: 1;
+    overflow-y: auto;
+}
+.wweb-chats-empty { padding: 16px; color: #6b7280; text-align: center; }
+.wweb-chat-item {
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f3f4f6;
+    align-items: center;
+}
+.wweb-chat-item:hover { background: #f9fafb; }
+.wweb-chat-item.active { background: #e7f3ff; }
+.wweb-chat-item .name {
+    font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wweb-chat-item .last {
+    color: #6b7280;
+    font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wweb-chat-item .time { color: #6b7280; font-size: 11px; }
+.wweb-chat-item .badge-unread {
+    background: #25d366;
+    color: #fff;
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-size: 11px;
+}
+
+.wweb-side-footer {
+    padding: 10px 12px;
+    border-top: 1px solid #e5e7eb;
+    font-size: 12px;
+    text-align: center;
+}
+.wweb-side-footer a { color: #2563eb; text-decoration: none; }
+
+/* --- Avatar --- */
+.wweb-avatar {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: #d1d5db center/cover no-repeat;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 600; font-size: 16px;
+}
+.wweb-avatar-self { background: #2563eb; }
+.wweb-avatar.has-image { background-size: cover; }
+
+/* --- Main --- */
+.wweb-main {
+    display: flex;
+    flex-direction: column;
+    background: #efeae2;
+    background-image:
+        repeating-linear-gradient(0deg, rgba(0,0,0,0.02) 0 1px, transparent 1px 4px),
+        repeating-linear-gradient(90deg, rgba(0,0,0,0.02) 0 1px, transparent 1px 4px);
+    overflow: hidden;
+}
+.wweb-empty {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    height: 100%; color: #6b7280;
+}
+.wweb-empty-icon { font-size: 48px; opacity: 0.4; margin-bottom: 12px; }
+
+.wweb-chat {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.wweb-chat-header {
+    background: #f0f2f5;
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid #e5e7eb;
+}
+.wweb-chat-meta { flex: 1; min-width: 0; }
+.wweb-chat-name {
+    font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wweb-chat-id { color: #6b7280; font-size: 12px; font-family: ui-monospace, monospace; }
+
+.wweb-icon-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 18px; line-height: 1; padding: 6px;
+    border-radius: 4px; color: #4b5563;
+}
+.wweb-icon-btn:hover { background: rgba(0,0,0,0.06); }
+
+/* --- Messages --- */
+.wweb-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.wweb-bubble {
+    max-width: 70%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    word-wrap: break-word;
+    position: relative;
+    font-size: 14px;
+}
+.wweb-bubble.incoming {
+    background: #fff;
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+}
+.wweb-bubble.outgoing {
+    background: #d9fdd3;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+.wweb-bubble .author {
+    font-size: 11px; font-weight: 600;
+    color: #2563eb; margin-bottom: 2px;
+}
+.wweb-bubble .text { white-space: pre-wrap; }
+.wweb-bubble .meta {
+    font-size: 10px; color: #6b7280;
+    text-align: right; margin-top: 2px;
+}
+.wweb-bubble .ack-read { color: #2563eb; }
+.wweb-bubble img.media {
+    max-width: 100%; max-height: 320px;
+    border-radius: 6px; display: block;
+    margin-bottom: 4px;
+}
+.wweb-bubble .file-card {
+    display: flex; gap: 8px; align-items: center;
+    background: rgba(0,0,0,0.04); padding: 8px;
+    border-radius: 6px;
+}
+.wweb-bubble .file-card .icon { font-size: 24px; }
+.wweb-bubble .file-card .meta-file { flex: 1; min-width: 0; }
+.wweb-bubble .file-card a { color: #2563eb; text-decoration: none; font-size: 12px; }
+.wweb-bubble .location { font-size: 12px; }
+.wweb-bubble .location a { color: #2563eb; }
+
+.wweb-bubble-actions {
+    position: absolute;
+    top: 2px; right: 4px;
+    background: rgba(255,255,255,0.9);
+    border-radius: 4px;
+    display: none;
+}
+.wweb-bubble:hover .wweb-bubble-actions { display: flex; }
+.wweb-bubble-actions button {
+    background: none; border: none; cursor: pointer;
+    padding: 2px 6px; font-size: 12px;
+}
+
+/* --- Input --- */
+.wweb-input {
+    background: #f0f2f5;
+    padding: 8px 12px;
+    display: flex; align-items: flex-end; gap: 8px;
+    position: relative;
+}
+.wweb-input textarea {
+    flex: 1;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 9px 12px;
+    background: #fff;
+    font-family: inherit;
+    font-size: 14px;
+    resize: none;
+    max-height: 150px;
+    line-height: 1.4;
+}
+.wweb-input textarea:focus { outline: 1px solid #2563eb; }
+.wweb-send-btn {
+    background: #25d366; color: #fff;
+    border: none; border-radius: 50%;
+    width: 42px; height: 42px;
+    font-size: 18px; cursor: pointer;
+}
+.wweb-send-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+
+.wweb-attach-menu {
+    position: absolute;
+    bottom: 60px; left: 12px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 4px;
+    display: flex; flex-direction: column;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    z-index: 10;
+}
+.wweb-attach-menu button {
+    display: block; width: 100%;
+    text-align: left;
+    background: none; border: none;
+    padding: 8px 12px;
+    font-size: 14px; cursor: pointer;
+    white-space: nowrap;
+    border-radius: 4px;
+}
+.wweb-attach-menu button:hover { background: #f3f4f6; }
+
+/* --- Modal --- */
+.wweb-modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+}
+.wweb-modal-card {
+    background: #fff; border-radius: 10px;
+    width: min(440px, 92vw);
+    max-height: 90vh;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+}
+.wweb-modal-card header {
+    background: #f0f2f5;
+    padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-weight: 600;
+    border-bottom: 1px solid #e5e7eb;
+}
+.wweb-modal-card > div {
+    padding: 16px;
+    overflow-y: auto;
+}
+.wweb-modal-card label { display: block; margin: 8px 0; }
+.wweb-modal-card label span { display: block; font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+.wweb-modal-card input[type="text"],
+.wweb-modal-card input[type="url"],
+.wweb-modal-card input[type="number"],
+.wweb-modal-card input[type="file"],
+.wweb-modal-card textarea {
+    width: 100%; padding: 8px 10px;
+    border: 1px solid #e5e7eb; border-radius: 6px;
+    font-family: inherit; font-size: 14px;
+}
+.wweb-modal-card .modal-actions {
+    margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;
+}
+.wweb-modal-card .modal-result { margin-top: 12px; }
+.wweb-modal-card .modal-result pre {
+    background: #f3f4f6; padding: 8px; border-radius: 4px;
+    font-size: 12px; overflow-x: auto;
+    max-height: 120px;
+}

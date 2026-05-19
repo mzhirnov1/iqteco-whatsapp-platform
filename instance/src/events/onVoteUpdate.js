@@ -2,7 +2,8 @@
 
 module.exports = (ctx) => async (vote) => {
   try {
-    const msg = await vote.parentMessage?.().catch(() => null);
+    // In wwebjs fork, Vote.parentMessage is a field (Message object), not an awaitable function.
+    const msg = vote && typeof vote === 'object' ? (vote.parentMessage || null) : null;
     const payload = ctx.mapper.toPollMessage(vote, msg);
     await ctx.webhookSender.enqueue('pollUpdate', payload);
   } catch (err) {

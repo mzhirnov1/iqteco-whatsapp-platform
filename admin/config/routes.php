@@ -32,6 +32,9 @@ return [
     ['GET',  '#^/instances/(?P<id>\d+)/chat$#',                                  [\Iqteco\WaAdmin\Controllers\ChatController::class, 'show']],
     ['GET',  '#^/api/instances/(?P<id>\d+)/proxy/(?P<method>[a-zA-Z]+)$#',       [\Iqteco\WaAdmin\Controllers\InstanceProxyController::class, 'proxy']],
     ['POST', '#^/api/instances/(?P<id>\d+)/proxy/(?P<method>[a-zA-Z]+)$#',       [\Iqteco\WaAdmin\Controllers\InstanceProxyController::class, 'proxy']],
+    ['GET',  '#^/api/instances/(?P<id>\d+)/proxy-media/(?P<messageId>[^/]+)$#',  [\Iqteco\WaAdmin\Controllers\InstanceProxyController::class, 'media']],
+    ['GET',  '#^/api/instances/(?P<id>\d+)/chat-list$#',                         [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'chatList']],
+    ['GET',  '#^/api/instances/(?P<id>\d+)/avatar$#',                            [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'avatar']],
 
     ['GET',  '#^/settings$#',                            [SettingsController::class, 'index']],
 

@@ -197,3 +197,9 @@ h2 { font-size: 16px; margin: 0 0 12px; color: var(--muted); }
 #send-result { margin-top: 12px; }
 #send-result pre { background: #f3f4f6; padding: 10px; border-radius: var(--radius); font-size: 12px; overflow: auto; }
 #check-result { margin-left: 8px; font-size: 12px; }
+
+.instance-subnav { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    margin: 8px 0 20px; padding: 12px 16px; background: #f9fafb;
+    border: 1px solid var(--border); border-radius: var(--radius); }
+.btn-lg { font-size: 15px; padding: 10px 18px; }
+.instance-subnav code { font-family: ui-monospace, monospace; font-size: 12px; }
