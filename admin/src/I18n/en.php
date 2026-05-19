@@ -59,4 +59,15 @@ return [
     'instance.show.traffic' => 'Traffic (per IPv6)',
     'instance.show.logs' => 'Container logs',
     'instance.show.logs_refresh' => 'Refresh',
+    'instance.show.test_chat' => 'Test chat',
+
+    'chat.title' => 'Test chat — instance {id}',
+    'chat.back' => 'Back to instance',
+    'chat.history' => 'History',
+    'chat.refresh' => 'Refresh',
+    'chat.send' => 'Send message',
+    'chat.check_wa' => 'Has WA?',
+    'chat.message_type' => 'Message type',
+    'chat.text' => 'Text',
+    'chat.send_btn' => 'Send',
 ];

@@ -59,4 +59,15 @@ return [
     'instance.show.traffic' => 'Трафик (IPv6)',
     'instance.show.logs' => 'Логи контейнера',
     'instance.show.logs_refresh' => 'Обновить',
+    'instance.show.test_chat' => 'Test chat',
+
+    'chat.title' => 'Test chat — инстанс {id}',
+    'chat.back' => 'К инстансу',
+    'chat.history' => 'История',
+    'chat.refresh' => 'Обновить',
+    'chat.send' => 'Отправить сообщение',
+    'chat.check_wa' => 'Есть WA?',
+    'chat.message_type' => 'Тип сообщения',
+    'chat.text' => 'Текст',
+    'chat.send_btn' => 'Отправить',
 ];

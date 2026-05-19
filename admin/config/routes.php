@@ -29,6 +29,10 @@ return [
     ['GET',  '#^/api/instances/(?P<id>\d+)/traffic$#',  [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'traffic']],
     ['GET',  '#^/api/instances/(?P<id>\d+)/logs$#',     [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'logs']],
 
+    ['GET',  '#^/instances/(?P<id>\d+)/chat$#',                                  [\Iqteco\WaAdmin\Controllers\ChatController::class, 'show']],
+    ['GET',  '#^/api/instances/(?P<id>\d+)/proxy/(?P<method>[a-zA-Z]+)$#',       [\Iqteco\WaAdmin\Controllers\InstanceProxyController::class, 'proxy']],
+    ['POST', '#^/api/instances/(?P<id>\d+)/proxy/(?P<method>[a-zA-Z]+)$#',       [\Iqteco\WaAdmin\Controllers\InstanceProxyController::class, 'proxy']],
+
     ['GET',  '#^/settings$#',                            [SettingsController::class, 'index']],
 
     // REST API for containers (auth: X-Admin-Token)

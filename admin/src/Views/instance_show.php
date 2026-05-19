@@ -70,6 +70,7 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
             <button type="submit" class="btn btn-danger"><?= View::e(I18n::t('instance.show.delete')) ?></button>
         </form>
         <a class="btn" href="/instances/<?= View::e($id) ?>/webhooks"><?= View::e(I18n::t('instance.show.webhook_log')) ?></a>
+        <a class="btn btn-primary" href="/instances/<?= View::e($id) ?>/chat"><?= View::e(I18n::t('instance.show.test_chat')) ?></a>
     </div>
 </div>
 
