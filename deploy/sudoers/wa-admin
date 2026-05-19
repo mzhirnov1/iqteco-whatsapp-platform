@@ -22,3 +22,4 @@ www-data ALL=(root) NOPASSWD: /usr/local/bin/wa-nft-add-counter *
 www-data ALL=(root) NOPASSWD: /usr/local/bin/wa-nft-del-counter *
 www-data ALL=(root) NOPASSWD: /usr/local/bin/wa-nft-init-table
 www-data ALL=(root) NOPASSWD: /usr/local/bin/wa-nginx-map-reload
+www-data ALL=(root) NOPASSWD: /usr/local/bin/wa-nginx-map-deploy

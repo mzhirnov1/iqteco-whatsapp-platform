@@ -14,6 +14,7 @@ final class NftablesManager
         $proc = new Process([
             '/usr/bin/sudo', '/usr/local/bin/wa-nft-add-counter', $idInstance, $ipv6,
         ]);
+        $proc->setWorkingDirectory('/tmp');
         $proc->setTimeout(10);
         $proc->run();
         if (!$proc->isSuccessful()) {
@@ -29,6 +30,7 @@ final class NftablesManager
     public function removeCounters(string $idInstance): bool
     {
         $proc = new Process(['/usr/bin/sudo', '/usr/local/bin/wa-nft-del-counter', $idInstance]);
+        $proc->setWorkingDirectory('/tmp');
         $proc->setTimeout(10);
         $proc->run();
         if (!$proc->isSuccessful()) {
@@ -47,6 +49,7 @@ final class NftablesManager
     public function listCounters(): array
     {
         $proc = new Process(['/usr/bin/sudo', '/usr/sbin/nft', '-j', 'list', 'table', 'inet', 'wa_traffic']);
+        $proc->setWorkingDirectory('/tmp');
         $proc->setTimeout(10);
         $proc->run();
         if (!$proc->isSuccessful()) {

@@ -47,6 +47,7 @@ final class PodmanRunner
         $args[] = $image;
 
         $proc = new Process($args);
+        $proc->setWorkingDirectory('/tmp');
         $proc->setTimeout(60);
         $proc->run();
 
@@ -69,6 +70,7 @@ final class PodmanRunner
             $this->config['podman']['binary'],
             'stop', '--time=' . $timeoutSec, $name
         ]);
+        $proc->setWorkingDirectory('/tmp');
         $proc->setTimeout($timeoutSec + 10);
         $proc->run();
         return $proc->isSuccessful();
@@ -86,6 +88,7 @@ final class PodmanRunner
         $args[] = $name;
 
         $proc = new Process($args);
+        $proc->setWorkingDirectory('/tmp');
         $proc->setTimeout(30);
         $proc->run();
         return $proc->isSuccessful();
@@ -104,6 +107,7 @@ final class PodmanRunner
             $this->config['podman']['binary'],
             'logs', '--tail=' . $tail, $name
         ]);
+        $proc->setWorkingDirectory('/tmp');
         $proc->setTimeout(15);
         $proc->run();
         return $proc->getOutput() . ($proc->getErrorOutput() ? "\n--- stderr ---\n" . $proc->getErrorOutput() : '');
@@ -117,6 +121,7 @@ final class PodmanRunner
             $this->config['podman']['binary'],
             'inspect', $name
         ]);
+        $proc->setWorkingDirectory('/tmp');
         $proc->setTimeout(10);
         $proc->run();
         if (!$proc->isSuccessful()) return null;

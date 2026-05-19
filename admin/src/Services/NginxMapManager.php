@@ -45,7 +45,7 @@ final class NginxMapManager
 
     public function reload(): void
     {
-        $proc = new Process(['/usr/bin/sudo', '/usr/sbin/nginx', '-s', 'reload']);
+        $proc = new Process(['/usr/bin/sudo', '/usr/sbin/nginx', '-s', 'reload']); $proc->setWorkingDirectory('/tmp');
         $proc->setTimeout(10);
         $proc->run();
         if (!$proc->isSuccessful()) {

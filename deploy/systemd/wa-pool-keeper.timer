@@ -1,0 +1,11 @@
+[Unit]
+Description=Top up the WhatsApp instance pool every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=wa-pool-keeper.service
+
+[Install]
+WantedBy=timers.target

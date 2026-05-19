@@ -37,6 +37,11 @@ return [
     ['GET',  '#^/api/instances/(?P<id>\d+)/chat-list$#',                         [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'chatList']],
     ['GET',  '#^/api/instances/(?P<id>\d+)/avatar$#',                            [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'avatar']],
 
+    // Green API Partner-compatible (used by legacy /var/www/wa.iqteco.com)
+    ['POST', '#^/api/partner/createInstance$#',                                  [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'createInstance']],
+    ['POST', '#^/api/partner/deleteInstance/(?P<id>\d+)$#',                      [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'deleteInstance']],
+    ['GET',  '#^/api/partner/getInstances$#',                                    [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'getInstances']],
+
     ['GET',  '#^/settings$#',                            [SettingsController::class, 'index']],
 
     // REST API for containers (auth: X-Admin-Token)
