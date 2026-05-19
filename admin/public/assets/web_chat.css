@@ -1,5 +1,11 @@
 /* WhatsApp Web-like UI — двухколоночный layout */
 
+/* Honor HTML `hidden` attribute over class display rules */
+.wweb-modal[hidden],
+.wweb-attach-menu[hidden],
+.wweb-chat[hidden],
+.wweb-empty[hidden] { display: none !important; }
+
 .wweb-root {
     display: grid;
     grid-template-columns: 360px 1fr;
