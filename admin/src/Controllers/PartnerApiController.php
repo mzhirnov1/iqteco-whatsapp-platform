@@ -109,8 +109,9 @@ final class PartnerApiController
             return;
         }
         try {
-            $this->manager()->delete($idInstance);
-            // Green API contract: { deleteInstanceAccount: 1 } or { deleteInstance: 1 }
+            // 24h grace before real teardown; container keeps running so
+            // a customer paying within the grace window can return.
+            $this->manager()->markForDelete($idInstance);
             $this->respond(200, ['deleteInstanceAccount' => 1, 'idInstance' => $idInstance]);
         } catch (\Throwable $e) {
             $this->respond(500, ['error' => 'delete_failed', 'message' => $e->getMessage()]);

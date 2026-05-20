@@ -1,0 +1,11 @@
+[Unit]
+Description=Reap pending_delete instances every hour
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Unit=wa-pending-delete.service
+
+[Install]
+WantedBy=timers.target

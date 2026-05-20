@@ -1,16 +1,15 @@
-# /etc/sudoers.d/wa-admin
-# Сужает доступ www-data к конкретным операциям над контейнерами и nginx.
-# Validate via `visudo -cf /etc/sudoers.d/wa-admin` после изменений.
-
+# Sudo allowlist for www-data (admin.wa.iqteco.com PHP).
+# Container names are validated in PodmanRunner (regex wa-\d{6,20}) before
+# being passed to sudo, so the wildcards here are safe.
 www-data ALL=(root) NOPASSWD: /usr/bin/podman run *
-www-data ALL=(root) NOPASSWD: /usr/bin/podman stop wa-*
-www-data ALL=(root) NOPASSWD: /usr/bin/podman start wa-*
-www-data ALL=(root) NOPASSWD: /usr/bin/podman rm wa-*
-www-data ALL=(root) NOPASSWD: /usr/bin/podman logs wa-*
-www-data ALL=(root) NOPASSWD: /usr/bin/podman pause wa-*
-www-data ALL=(root) NOPASSWD: /usr/bin/podman unpause wa-*
-www-data ALL=(root) NOPASSWD: /usr/bin/podman exec wa-*
-www-data ALL=(root) NOPASSWD: /usr/bin/podman inspect wa-*
+www-data ALL=(root) NOPASSWD: /usr/bin/podman stop *
+www-data ALL=(root) NOPASSWD: /usr/bin/podman start *
+www-data ALL=(root) NOPASSWD: /usr/bin/podman rm *
+www-data ALL=(root) NOPASSWD: /usr/bin/podman logs *
+www-data ALL=(root) NOPASSWD: /usr/bin/podman pause *
+www-data ALL=(root) NOPASSWD: /usr/bin/podman unpause *
+www-data ALL=(root) NOPASSWD: /usr/bin/podman exec *
+www-data ALL=(root) NOPASSWD: /usr/bin/podman inspect *
 www-data ALL=(root) NOPASSWD: /usr/bin/podman ps *
 www-data ALL=(root) NOPASSWD: /usr/bin/systemctl start wa-instance@*
 www-data ALL=(root) NOPASSWD: /usr/bin/systemctl stop wa-instance@*

@@ -1,0 +1,8 @@
+[Unit]
+Description=wa instance pending-delete reaper (hard cleanup after 24h grace)
+After=network-online.target mongod.service
+
+[Service]
+Type=oneshot
+User=www-data
+ExecStart=/usr/bin/php /var/www/admin.wa.iqteco.com/scripts/wa-pending-delete.php

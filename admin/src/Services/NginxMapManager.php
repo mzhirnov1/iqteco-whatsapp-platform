@@ -11,11 +11,12 @@ final class NginxMapManager
 
     /**
      * Регенерирует /etc/nginx/wa-instances.map из активных инстансов.
-     * Затем reload nginx (через sudo allowlist).
+     * www-data не имеет write permission на /etc/nginx, поэтому пишем
+     * в /run/wa-admin/wa-instances.map и устанавливаем через sudo helper
+     * /usr/local/bin/wa-nginx-map-deploy (он делает install + nginx -s reload).
      */
     public function regenerate(): void
     {
-        $mapFile = $this->config['nginx']['map_file'];
         $instances = MongoClient::db($this->config)
             ->selectCollection('instances')
             ->find(
@@ -31,22 +32,21 @@ final class NginxMapManager
         }
         $content = implode("\n", $lines) . "\n";
 
-        $tmp = $mapFile . '.tmp';
-        if (file_put_contents($tmp, $content) === false) {
-            throw new \RuntimeException("Cannot write {$tmp}");
+        $stageDir = '/run/wa-admin';
+        @mkdir($stageDir, 0755, true);
+        $stage = $stageDir . '/wa-instances.map';
+        if (file_put_contents($stage, $content) === false) {
+            throw new \RuntimeException("Cannot write {$stage}");
         }
-        if (!@rename($tmp, $mapFile)) {
-            throw new \RuntimeException("Cannot rename {$tmp} → {$mapFile}");
-        }
-
         $this->reload();
         $this->logger->info('NginxMap regenerated', ['count' => count($lines) - 1]);
     }
 
     public function reload(): void
     {
-        $proc = new Process(['/usr/bin/sudo', '/usr/sbin/nginx', '-s', 'reload']); $proc->setWorkingDirectory('/tmp');
-        $proc->setTimeout(10);
+        $proc = new Process(['/usr/bin/sudo', '/usr/local/bin/wa-nginx-map-deploy']);
+        $proc->setWorkingDirectory('/tmp');
+        $proc->setTimeout(15);
         $proc->run();
         if (!$proc->isSuccessful()) {
             $err = $proc->getErrorOutput() ?: $proc->getOutput();

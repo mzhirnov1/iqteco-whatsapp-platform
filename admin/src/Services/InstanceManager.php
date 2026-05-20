@@ -188,26 +188,115 @@ final class InstanceManager
         return $res !== false;
     }
 
-    public function delete(string $idInstance, bool $releaseIpBanned = false): bool
+    /**
+     * Soft-delete: mark instance for cleanup in 24h.
+     * Container keeps running so a returning customer (paid within grace
+     * window) doesn't lose the WhatsApp session. Actual stop+rm happens
+     * later in executePendingDelete() called by wa-pending-delete.timer.
+     * Used by Partner API deleteInstanceAccount (legacy cron path).
+     */
+    public function markForDelete(string $idInstance, int $graceSeconds = 86400): bool
     {
-        $inst = $this->findOrFail($idInstance);
-        $this->logger->info('InstanceManager: delete', ['idInstance' => $idInstance]);
+        $inst = $this->find($idInstance);
+        if (!$inst) return false;
+        if (($inst['state'] ?? '') === 'deleted') return true;  // already gone
 
-        $this->podman->stop($inst['containerName']);
-        $this->podman->rm($inst['containerName']);
+        MongoClient::db($this->config)->selectCollection('instances')->updateOne(
+            ['idInstance' => $idInstance],
+            ['$set' => [
+                'state' => 'pending_delete',
+                'markedForDeleteAt' => new UTCDateTime((time() + $graceSeconds) * 1000),
+                'markedForDeleteReason' => 'partner_api',
+            ]],
+        );
+        $this->logger->info('InstanceManager: marked for delete', [
+            'idInstance' => $idInstance, 'graceSeconds' => $graceSeconds,
+        ]);
+        return true;
+    }
 
-        if ($this->nft) {
-            $this->nft->removeCounters($idInstance);
+    /**
+     * Reverse markForDelete — if the customer pays in time.
+     */
+    public function unmarkForDelete(string $idInstance): bool
+    {
+        $r = MongoClient::db($this->config)->selectCollection('instances')->updateOne(
+            ['idInstance' => $idInstance, 'state' => 'pending_delete'],
+            ['$set' => ['state' => 'authorized'],  // best effort, real state pulled via heartbeat
+             '$unset' => ['markedForDeleteAt' => '', 'markedForDeleteReason' => '']],
+        );
+        return $r->getModifiedCount() > 0;
+    }
+
+    /**
+     * Hard cleanup: kill container, drop session, release IPv6.
+     * Called by:
+     *   - wa-pending-delete timer for instances whose grace expired
+     *   - delete() (UI immediate path) — sync flow
+     */
+    public function executePendingDelete(string $idInstance, bool $releaseIpBanned = false): bool
+    {
+        $inst = $this->find($idInstance);
+        if (!$inst) return false;
+        if (($inst['state'] ?? '') === 'deleted') return true;
+
+        $name = $inst['containerName'] ?? '';
+        $this->logger->info('InstanceManager: executing pending delete', ['idInstance' => $idInstance]);
+
+        if ($name) {
+            $this->podman->stop($name);
+            $this->podman->rm($name);
+        }
+        if ($this->nft) $this->nft->removeCounters($idInstance);
+
+        // Drop the WhatsApp session zip from GridFS so a future reuse of
+        // the same idInstance won't accidentally restore a stranger's chat.
+        try {
+            $db = MongoClient::db($this->config);
+            $store = new MongoStore(['db' => $db, 'idInstance' => $idInstance]);
+            $store->delete(['session' => 'RemoteAuth-' . $idInstance]);
+        } catch (\Throwable $e) {
+            $this->logger->warn('session drop failed', ['idInstance' => $idInstance, 'err' => $e->getMessage()]);
         }
 
         MongoClient::db($this->config)->selectCollection('instances')->updateOne(
             ['idInstance' => $idInstance],
-            ['$set' => ['state' => 'deleted', 'deletedAt' => new UTCDateTime(), 'ipv6' => null]]
+            ['$set' => ['state' => 'deleted', 'deletedAt' => new UTCDateTime(), 'ipv6' => null]],
         );
 
-        $this->ipPool->release($inst['ipv6'], $releaseIpBanned);
+        if (!empty($inst['ipv6'])) {
+            $this->ipPool->release($inst['ipv6'], $releaseIpBanned);
+        }
         $this->nginx->regenerate();
         return true;
+    }
+
+    /**
+     * Walk all pending_delete docs whose grace expired and tear them down.
+     * Returns number of instances cleaned up.
+     */
+    public function reapPendingDeletes(): int
+    {
+        $cursor = MongoClient::db($this->config)->selectCollection('instances')->find(
+            [
+                'state' => 'pending_delete',
+                'markedForDeleteAt' => ['$lte' => new UTCDateTime()],
+            ],
+            ['projection' => ['idInstance' => 1], 'limit' => 100],
+        );
+        $count = 0;
+        foreach ($cursor as $d) {
+            if ($this->executePendingDelete((string)$d['idInstance'])) $count++;
+        }
+        return $count;
+    }
+
+    /**
+     * Immediate hard delete (used by admin UI). Wraps executePendingDelete.
+     */
+    public function delete(string $idInstance, bool $releaseIpBanned = false): bool
+    {
+        return $this->executePendingDelete($idInstance, $releaseIpBanned);
     }
 
     public function findOrFail(string $idInstance): array
