@@ -26,20 +26,35 @@ async function resolveJid(client, chatId) {
   if (trimmed.endsWith('@g.us')) {
     return { ok: true, jid: trimmed };
   }
-  // Already personal jid — still verify via getNumberId so we get the
-  // resolved LID-aware serialized id wweb.js requires.
+  // LID jid — pass through (newer WhatsApp Linked Identity). wweb.js
+  // sendMessage accepts @lid directly; getNumberId can't resolve these.
+  if (trimmed.endsWith('@lid')) {
+    return { ok: true, jid: trimmed };
+  }
+
   const digits = trimmed.replace(/@c\.us$/, '').replace(/[^\d]/g, '');
   if (!digits) {
     return { ok: false, reason: 'invalid_chatId' };
   }
 
+  // Try phone-number resolution first (returns proper c.us / lid serialized).
   try {
     const wid = await client.getNumberId(digits);
-    if (!wid) return { ok: false, reason: 'not_on_whatsapp' };
-    return { ok: true, jid: wid._serialized };
+    if (wid) return { ok: true, jid: wid._serialized };
   } catch (err) {
-    return { ok: false, reason: 'lookup_failed', message: err.message };
+    // fall through to LID fallback
   }
+
+  // Fallback: if Bitrix24 stored a LID as the connector user.id (because
+  // our incoming webhook surfaced it as @c.us), retry as @lid. wweb.js
+  // can route messages straight to LID jids when the chat exists.
+  const lidJid = digits + '@lid';
+  try {
+    const chat = await client.getChatById(lidJid).catch(() => null);
+    if (chat) return { ok: true, jid: lidJid };
+  } catch (err) { /* ignore */ }
+
+  return { ok: false, reason: 'not_on_whatsapp' };
 }
 
 module.exports = { resolveJid };
