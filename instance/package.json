@@ -14,14 +14,15 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.967.0",
     "express": "^4.21.1",
     "mime-types": "^2.1.35",
     "mongodb": "^6.10.0",
     "multer": "^2.0.0",
     "pino": "^9.5.0",
+    "qrcode": "^1.5.4",
     "undici": "^6.21.0",
-    "whatsapp-web.js": "github:wwebjs/whatsapp-web.js#main",
-    "qrcode": "^1.5.4"
+    "whatsapp-web.js": "github:wwebjs/whatsapp-web.js#main"
   },
   "devDependencies": {
     "vitest": "^2.1.5"
