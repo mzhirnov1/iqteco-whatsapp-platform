@@ -1,5 +1,7 @@
 'use strict';
 
+const { resolveJid } = require('../lib/jid');
+
 module.exports = (ctx) => async (req, res) => {
   if (!ctx.state.authorized) {
     return res.status(466).json({ error: 'instanceNotAuthorized' });
@@ -9,6 +11,12 @@ module.exports = (ctx) => async (req, res) => {
 
   const contacts = Array.isArray(contactsArray) ? contactsArray : (contact ? [contact] : []);
   if (contacts.length === 0) return res.status(400).json({ error: 'contactsArray or contact required' });
+
+  const resolved = await resolveJid(ctx.client, chatId);
+  if (!resolved.ok) {
+    ctx.logger.warn({ chatId, reason: resolved.reason }, 'sendContact skipped (jid)');
+    return res.json({ idMessage: null, error: resolved.reason });
+  }
 
   try {
     const wwebContacts = [];
@@ -23,11 +31,11 @@ module.exports = (ctx) => async (req, res) => {
       return res.status(400).json({ error: 'no valid contacts' });
     }
     const opts = quotedMessageId ? { quotedMessageId } : {};
-    const sent = await ctx.client.sendMessage(chatId, wwebContacts.length === 1 ? wwebContacts[0] : wwebContacts, opts);
+    const sent = await ctx.client.sendMessage(resolved.jid, wwebContacts.length === 1 ? wwebContacts[0] : wwebContacts, opts);
     if (sent?.id?._serialized) ctx.outgoingApiIds.add(sent.id._serialized);
     res.json({ idMessage: sent?.id?._serialized || null });
   } catch (err) {
-    ctx.logger.error({ err: err.message }, 'sendContact failed');
+    ctx.logger.error({ err: err.message, chatId, jid: resolved.jid }, 'sendContact failed');
     res.status(500).json({ error: 'send_failed', message: err.message });
   }
 };

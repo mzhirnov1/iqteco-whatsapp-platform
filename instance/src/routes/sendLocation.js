@@ -1,6 +1,7 @@
 'use strict';
 
 const { Location } = require('whatsapp-web.js');
+const { resolveJid } = require('../lib/jid');
 
 module.exports = (ctx) => async (req, res) => {
   if (!ctx.state.authorized) {
@@ -10,17 +11,24 @@ module.exports = (ctx) => async (req, res) => {
   if (!chatId || latitude == null || longitude == null) {
     return res.status(400).json({ error: 'chatId, latitude, longitude required' });
   }
+
+  const resolved = await resolveJid(ctx.client, chatId);
+  if (!resolved.ok) {
+    ctx.logger.warn({ chatId, reason: resolved.reason }, 'sendLocation skipped (jid)');
+    return res.json({ idMessage: null, error: resolved.reason });
+  }
+
   try {
     const loc = new Location(Number(latitude), Number(longitude), {
       name: nameLocation || '',
       address: address || '',
     });
     const opts = quotedMessageId ? { quotedMessageId } : {};
-    const sent = await ctx.client.sendMessage(chatId, loc, opts);
+    const sent = await ctx.client.sendMessage(resolved.jid, loc, opts);
     if (sent?.id?._serialized) ctx.outgoingApiIds.add(sent.id._serialized);
     res.json({ idMessage: sent?.id?._serialized || null });
   } catch (err) {
-    ctx.logger.error({ err: err.message }, 'sendLocation failed');
+    ctx.logger.error({ err: err.message, chatId, jid: resolved.jid }, 'sendLocation failed');
     res.status(500).json({ error: 'send_failed', message: err.message });
   }
 };
