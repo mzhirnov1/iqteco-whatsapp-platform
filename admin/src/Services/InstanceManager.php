@@ -120,6 +120,7 @@ final class InstanceManager
                     'ADMIN_TOKEN' => $this->config['admin']['shared_token'],
                     'WEBHOOK_URL' => $webhookUrl,
                     'IPV6_ADDR' => $ipv6,
+                    'MEDIA_BASE_URL' => $this->config['api']['base_url'] ?? 'https://api.wa.iqteco.com',
                     'LOG_LEVEL' => 'info',
                 ],
             ]);
@@ -166,6 +167,7 @@ final class InstanceManager
                     'ADMIN_TOKEN' => $this->config['admin']['shared_token'],
                     'WEBHOOK_URL' => $inst['webhookUrl'] ?? '',
                     'IPV6_ADDR' => $inst['ipv6'],
+                    'MEDIA_BASE_URL' => $this->config['api']['base_url'] ?? 'https://api.wa.iqteco.com',
                     'LOG_LEVEL' => 'info',
                 ],
             ]);

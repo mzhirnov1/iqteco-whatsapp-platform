@@ -26,6 +26,9 @@ return [
         'base_url' => wa_env('ADMIN_BASE_URL') ?: 'https://admin.wa.iqteco.com',
         'session_lifetime' => 86400,
     ],
+    'api' => [
+        'base_url' => wa_env('API_BASE_URL') ?: 'https://api.wa.iqteco.com',
+    ],
     'podman' => [
         'binary' => '/usr/bin/podman',
         'sudo_binary' => '/usr/bin/sudo',
