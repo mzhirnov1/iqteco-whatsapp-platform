@@ -1,7 +1,7 @@
 'use strict';
 
 const { mapWAStateToGreen, mapAckToGreen } = require('./StateMap');
-const { buildMediaFilename } = require('./mime');
+const { buildMediaFilename, mimeToExt } = require('./mime');
 
 class GreenApiMapper {
   constructor({ idInstance, apiToken, getWid, mediaBaseUrl = '' }) {
@@ -19,9 +19,11 @@ class GreenApiMapper {
     };
   }
 
-  _downloadUrl(messageId) {
+  _downloadUrl(messageId, ext) {
     if (!this.mediaBaseUrl || !messageId) return '';
-    return `${this.mediaBaseUrl}/waInstance${this.idInstance}/media/${this.apiToken}/${encodeURIComponent(messageId)}`;
+    const encoded = encodeURIComponent(messageId);
+    const suffix = ext ? `.${ext}` : '';
+    return `${this.mediaBaseUrl}/waInstance${this.idInstance}/media/${this.apiToken}/${encoded}${suffix}`;
   }
 
   toStateInstanceChanged(waState) {
@@ -238,8 +240,10 @@ class GreenApiMapper {
       mimeType,
       fallbackBase: msg.id?.id,
     });
+    const extFromName = (fileName.match(/\.([a-z0-9]{1,5})$/i) || [])[1] || '';
+    const ext = extFromName || mimeToExt(mimeType);
     return {
-      downloadUrl: this._downloadUrl(idMessage),
+      downloadUrl: this._downloadUrl(idMessage, ext),
       caption: msg.body || msg._data?.caption || '',
       fileName,
       mimeType,

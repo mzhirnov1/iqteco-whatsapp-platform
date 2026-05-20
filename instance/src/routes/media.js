@@ -1,10 +1,14 @@
 'use strict';
 
 module.exports = (ctx) => async (req, res) => {
-  const { messageId } = req.params;
+  let { messageId } = req.params;
   if (!messageId) {
     return res.status(400).json({ error: 'messageId required' });
   }
+  // URL may carry an extension hint (e.g. ".mp4", ".ogg") so Bitrix24 and
+  // similar consumers can detect media type from URL path. Strip it before
+  // resolving the actual S3 object key.
+  messageId = messageId.replace(/\.[a-z0-9]{1,5}$/i, '');
 
   const entry = await ctx.mediaStore.openByMessageId(messageId);
   if (!entry) {
