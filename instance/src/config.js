@@ -28,7 +28,14 @@ const config = {
   mediaBaseUrl: optional('MEDIA_BASE_URL', ''),
   mediaMaxBytes: Number(optional('MEDIA_MAX_BYTES', 50 * 1024 * 1024)),
   messagesTtlDays: Number(optional('MESSAGES_TTL_DAYS', 90)),
-  mediaTtlDays: Number(optional('MEDIA_TTL_DAYS', 90)),
+  s3: {
+    endpoint: required('S3_ENDPOINT'),
+    region: required('S3_REGION'),
+    bucket: required('S3_BUCKET'),
+    accessKey: required('S3_ACCESS_KEY'),
+    secretKey: required('S3_SECRET_KEY'),
+    keyPrefix: optional('S3_KEY_PREFIX', 'media/'),
+  },
 };
 
 module.exports = config;

@@ -1,86 +1,65 @@
 'use strict';
 
-const { GridFSBucket, ObjectId } = require('mongodb');
+const {
+  PutObjectCommand,
+  GetObjectCommand,
+  HeadBucketCommand,
+} = require('@aws-sdk/client-s3');
 
 class MediaStore {
-  constructor({ db, idInstance, bucketName = 'wa_media', ttlDays = 90 }) {
-    if (!db) throw new Error('MediaStore: db required');
-    this.db = db;
-    this.bucketName = bucketName;
-    this.bucket = new GridFSBucket(db, { bucketName });
-    this.filesColl = db.collection(`${bucketName}.files`);
+  constructor({ s3, bucket, keyPrefix = 'media/', idInstance, logger }) {
+    if (!s3) throw new Error('MediaStore: s3 client required');
+    if (!bucket) throw new Error('MediaStore: bucket required');
+    this.s3 = s3;
+    this.bucket = bucket;
+    this.keyPrefix = String(keyPrefix || '').replace(/\/?$/, '/');
     this.idInstance = String(idInstance);
-    this.ttlDays = ttlDays;
+    this.logger = logger || console;
   }
 
-  async ensureTtl() {
-    const ttlSeconds = this.ttlDays * 86400;
-    try {
-      await this.filesColl.createIndex(
-        { uploadDate: 1 },
-        { expireAfterSeconds: ttlSeconds },
-      );
-      // Patch existing TTL index if expireAfterSeconds was different
-      await this.db.command({
-        collMod: `${this.bucketName}.files`,
-        index: { keyPattern: { uploadDate: 1 }, expireAfterSeconds: ttlSeconds },
-      }).catch(() => {});
-    } catch {
-      // ignore on read-only or already exists
-    }
+  _key(messageId) {
+    return `${this.keyPrefix}${this.idInstance}/${messageId}`;
   }
 
-  /**
-   * Saves buffer with metadata.
-   * @returns {Promise<string>} stored file id (hex)
-   */
+  async checkReachable() {
+    await this.s3.send(new HeadBucketCommand({ Bucket: this.bucket }));
+  }
+
   async save({ messageId, buffer, mimeType, filename, fromMe }) {
-    const stream = this.bucket.openUploadStream(filename || messageId, {
-      contentType: mimeType,
-      metadata: {
-        idInstance: this.idInstance,
-        messageId,
-        fromMe: !!fromMe,
-      },
-    });
-
-    return await new Promise((resolve, reject) => {
-      stream.once('error', reject);
-      stream.once('finish', () => resolve(String(stream.id)));
-      stream.end(buffer);
-    });
-  }
-
-  /**
-   * Opens read stream by messageId (latest match) or by file _id.
-   */
-  async openByMessageId(messageId) {
-    const file = await this.filesColl.findOne(
-      { 'metadata.messageId': messageId, 'metadata.idInstance': this.idInstance },
-      { sort: { uploadDate: -1 } }
-    );
-    if (!file) return null;
-    return {
-      stream: this.bucket.openDownloadStream(file._id),
-      contentType: file.contentType || 'application/octet-stream',
-      filename: file.filename,
-      length: file.length,
+    const cleanFilename = (filename || '').replace(/[\r\n"]/g, '');
+    const metadata = {
+      instance: this.idInstance,
+      message: messageId,
+      'from-me': fromMe ? '1' : '0',
     };
+    if (cleanFilename) metadata.filename = cleanFilename;
+
+    await this.s3.send(new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: this._key(messageId),
+      Body: buffer,
+      ContentType: mimeType || 'application/octet-stream',
+      ContentDisposition: cleanFilename ? `inline; filename="${cleanFilename}"` : undefined,
+      Metadata: metadata,
+    }));
+    return this._key(messageId);
   }
 
-  async openById(id) {
+  async openByMessageId(messageId) {
     try {
-      const _id = new ObjectId(id);
-      const file = await this.filesColl.findOne({ _id });
-      if (!file) return null;
+      const res = await this.s3.send(new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: this._key(messageId),
+      }));
       return {
-        stream: this.bucket.openDownloadStream(_id),
-        contentType: file.contentType || 'application/octet-stream',
-        filename: file.filename,
-        length: file.length,
+        stream: res.Body,
+        contentType: res.ContentType || 'application/octet-stream',
+        filename: res.Metadata?.filename || '',
+        length: res.ContentLength,
       };
-    } catch {
-      return null;
+    } catch (err) {
+      if (err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) return null;
+      throw err;
     }
   }
 }

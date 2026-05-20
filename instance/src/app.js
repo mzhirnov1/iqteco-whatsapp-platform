@@ -8,6 +8,7 @@ const { createLogger } = require('./lib/Logger');
 const MongoStore = require('./lib/MongoStore');
 const MediaStore = require('./lib/MediaStore');
 const MessageStore = require('./lib/MessageStore');
+const { makeS3Client } = require('./lib/S3Client');
 const AdminClient = require('./lib/AdminClient');
 const WebhookSender = require('./lib/WebhookSender');
 const GreenApiMapper = require('./lib/GreenApiMapper');
@@ -66,9 +67,18 @@ async function main() {
   // 3. Session store
   const store = new MongoStore({ db, idInstance: config.idInstance, dataPath: './.wwebjs_auth/' });
 
-  // 3b. Media + message stores
-  const mediaStore = new MediaStore({ db, idInstance: config.idInstance, ttlDays: config.mediaTtlDays });
-  await mediaStore.ensureTtl();
+  // 3b. Media (Wasabi S3) + message stores
+  const s3 = makeS3Client(config.s3);
+  const mediaStore = new MediaStore({
+    s3,
+    bucket: config.s3.bucket,
+    keyPrefix: config.s3.keyPrefix,
+    idInstance: config.idInstance,
+    logger,
+  });
+  mediaStore.checkReachable()
+    .then(() => logger.info({ bucket: config.s3.bucket }, 's3 bucket reachable'))
+    .catch((err) => logger.error({ err: err.message, bucket: config.s3.bucket }, 's3 bucket unreachable — media uploads will fail'));
   const messageStore = new MessageStore({ db, idInstance: config.idInstance, ttlDays: config.messagesTtlDays });
   await messageStore.ensureIndexes();
 

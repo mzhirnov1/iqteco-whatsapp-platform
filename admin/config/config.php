@@ -29,6 +29,14 @@ return [
     'api' => [
         'base_url' => wa_env('API_BASE_URL') ?: 'https://api.wa.iqteco.com',
     ],
+    's3' => [
+        'endpoint'   => wa_env('S3_ENDPOINT')   ?: 'https://s3.eu-west-2.wasabisys.com',
+        'region'     => wa_env('S3_REGION')     ?: 'eu-west-2',
+        'bucket'     => wa_env('S3_BUCKET')     ?: 'wa.iqteco.com',
+        'access_key' => wa_env('S3_ACCESS_KEY') ?: '',
+        'secret_key' => wa_env('S3_SECRET_KEY') ?: '',
+        'key_prefix' => wa_env('S3_KEY_PREFIX') ?: 'media/',
+    ],
     'podman' => [
         'binary' => '/usr/bin/podman',
         'sudo_binary' => '/usr/bin/sudo',
