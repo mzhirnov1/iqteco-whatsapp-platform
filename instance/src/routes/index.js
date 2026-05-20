@@ -42,9 +42,11 @@ function mountRoutes(app, ctx) {
 
   // Account / state
   app.get(`${prefix}/getStateInstance/:token`, auth, getStateInstance(ctx));
+  app.get(`${prefix}/getStatusInstance/:token`, auth, getStateInstance(ctx));  // alias used by legacy
   app.get(`${prefix}/getSettings/:token`, auth, getSettings(ctx));
   app.post(`${prefix}/setSettings/:token`, auth, setSettings(ctx));
   app.get(`${prefix}/getQrCode/:token`, auth, getQrCode(ctx));
+  app.get(`${prefix}/qr/:token`, auth, getQrCode(ctx));  // alias used by legacy GreenApi::getQrCode()
   app.post(`${prefix}/getAuthorizationCode/:token`, auth, getAuthorizationCode(ctx));
   app.get(`${prefix}/getAuthorizationCode/:token`, auth, getAuthorizationCode(ctx));
   app.get(`${prefix}/reboot/:token`, auth, reboot(ctx));
