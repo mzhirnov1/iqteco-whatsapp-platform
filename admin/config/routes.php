@@ -37,10 +37,13 @@ return [
     ['GET',  '#^/api/instances/(?P<id>\d+)/chat-list$#',                         [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'chatList']],
     ['GET',  '#^/api/instances/(?P<id>\d+)/avatar$#',                            [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'avatar']],
 
-    // Green API Partner-compatible (used by legacy /var/www/wa.iqteco.com)
-    ['POST', '#^/api/partner/createInstance$#',                                  [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'createInstance']],
-    ['POST', '#^/api/partner/deleteInstance/(?P<id>\d+)$#',                      [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'deleteInstance']],
-    ['GET',  '#^/api/partner/getInstances$#',                                    [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'getInstances']],
+    // Green API Partner-compatible. Token in URL path (как у api.green-api.com).
+    // legacy /var/www/wa.iqteco.com/helpers/GreenApiPartner.php шлёт
+    // {baseUrl}/{endpoint}/{partnerToken} — для совместимости поддерживаем точно так же.
+    ['POST', '#^/api/partner/createInstance/(?P<token>[a-zA-Z0-9._-]+)$#',                [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'createInstance']],
+    ['POST', '#^/api/partner/deleteInstanceAccount/(?P<token>[a-zA-Z0-9._-]+)$#',         [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'deleteInstance']],
+    ['POST', '#^/api/partner/deleteInstance/(?P<token>[a-zA-Z0-9._-]+)/(?P<id>\d+)$#',    [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'deleteInstance']],
+    ['GET',  '#^/api/partner/getInstances/(?P<token>[a-zA-Z0-9._-]+)$#',                  [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'getInstances']],
 
     ['GET',  '#^/settings$#',                            [SettingsController::class, 'index']],
 

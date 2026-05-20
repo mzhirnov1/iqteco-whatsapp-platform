@@ -15,26 +15,34 @@ use Iqteco\WaAdmin\Services\PodmanRunner;
  * Green API Partner-compatible endpoint.
  * Allows legacy /var/www/wa.iqteco.com (helpers/GreenApiPartner.php) to
  * create/delete instances on our platform without modifying its consumer
- * code (handler.php, action.php, dashboard.php). Auth: header X-Partner-Token.
+ * code (handler.php, action.php, dashboard.php).
+ *
+ * Authentication is identical to api.green-api.com/partner: the partner
+ * token goes in the URL path. Header X-Partner-Token also accepted.
  *
  * Contract:
- *   POST /api/partner/createInstance  { name?, webhookUrl? } →
- *       { id: "1101000XXX", api_token: "<50hex>", apiUrl: "https://api.wa.iqteco.com" }
- *   POST /api/partner/deleteInstance/{id}            → { ok: true }
- *   GET  /api/partner/getInstances                    → [ {idInstance, state, ipv6, ...}, ... ]
+ *   POST /api/partner/createInstance/{token}        body: { name?, webhookUrl? }
+ *        → { idInstance, apiTokenInstance, id, api_token, apiUrl }
+ *   POST /api/partner/deleteInstanceAccount/{token} body: { idInstance }
+ *        → { deleteInstanceAccount: 1 }
+ *   GET  /api/partner/getInstances/{token}
+ *        → [ {idInstance, apiTokenInstance, apiUrl, state, ...}, ... ]
  */
 final class PartnerApiController
 {
     public function __construct(private readonly array $config) {}
 
-    private function authenticate(): bool
+    private function authenticate(array $params): bool
     {
         $expected = (string)(\wa_env('PARTNER_TOKEN') ?? '');
         if ($expected === '') {
             $this->respond(500, ['error' => 'partner_token_not_configured']);
             return false;
         }
-        $provided = (string)($_SERVER['HTTP_X_PARTNER_TOKEN'] ?? $_GET['partnerToken'] ?? '');
+        $provided = (string)($params['token']
+            ?? $_SERVER['HTTP_X_PARTNER_TOKEN']
+            ?? $_GET['partnerToken']
+            ?? '');
         if (!hash_equals($expected, $provided)) {
             $this->respond(401, ['error' => 'unauthorized']);
             return false;
@@ -63,7 +71,7 @@ final class PartnerApiController
 
     public function createInstance(array $params): void
     {
-        if (!$this->authenticate()) return;
+        if (!$this->authenticate($params)) return;
 
         $body = $this->readJson();
         $name = (string)($body['name'] ?? '');
@@ -89,11 +97,21 @@ final class PartnerApiController
 
     public function deleteInstance(array $params): void
     {
-        if (!$this->authenticate()) return;
-        $idInstance = (string)$params['id'];
+        if (!$this->authenticate($params)) return;
+        $idInstance = (string)($params['id'] ?? '');
+        if ($idInstance === '') {
+            // Green-API partner sends POST body { idInstance: 12345 }
+            $body = $this->readJson();
+            $idInstance = (string)($body['idInstance'] ?? '');
+        }
+        if ($idInstance === '') {
+            $this->respond(400, ['error' => 'idInstance required']);
+            return;
+        }
         try {
             $this->manager()->delete($idInstance);
-            $this->respond(200, ['ok' => true, 'idInstance' => $idInstance]);
+            // Green API contract: { deleteInstanceAccount: 1 } or { deleteInstance: 1 }
+            $this->respond(200, ['deleteInstanceAccount' => 1, 'idInstance' => $idInstance]);
         } catch (\Throwable $e) {
             $this->respond(500, ['error' => 'delete_failed', 'message' => $e->getMessage()]);
         }
@@ -101,9 +119,13 @@ final class PartnerApiController
 
     public function getInstances(array $params): void
     {
-        if (!$this->authenticate()) return;
+        if (!$this->authenticate($params)) return;
+        // Hide internal warm pool from partner consumers (legacy GreenApiPartner).
         $cursor = MongoClient::db($this->config)->selectCollection('instances')->find(
-            ['state' => ['$ne' => 'deleted']],
+            [
+                'state' => ['$ne' => 'deleted'],
+                'ownerId' => ['$nin' => [\Iqteco\WaAdmin\Services\InstancePool::OWNER_TAG, null]],
+            ],
             ['projection' => ['idInstance' => 1, 'apiToken' => 1, 'state' => 1, 'ipv6' => 1,
                               'phoneNumber' => 1, 'ownerId' => 1, 'createdAt' => 1],
              'sort' => ['createdAt' => -1], 'limit' => 500],
