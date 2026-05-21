@@ -30,6 +30,12 @@ return [
     ['GET',  '#^/api/instances/(?P<id>\d+)/traffic$#',  [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'traffic']],
     ['GET',  '#^/api/instances/(?P<id>\d+)/logs$#',     [\Iqteco\WaAdmin\Controllers\InstanceApiController::class, 'logs']],
 
+    ['GET',  '#^/support$#',                                                     [\Iqteco\WaAdmin\Controllers\SupportController::class, 'show']],
+    ['GET',  '#^/api/support/chats$#',                                            [\Iqteco\WaAdmin\Controllers\SupportController::class, 'listChats']],
+    ['GET',  '#^/api/support/chats/(?P<memberId>[a-zA-Z0-9_.-]+)$#',              [\Iqteco\WaAdmin\Controllers\SupportController::class, 'chatMessages']],
+    ['POST', '#^/api/support/chats/(?P<memberId>[a-zA-Z0-9_.-]+)/send$#',         [\Iqteco\WaAdmin\Controllers\SupportController::class, 'sendOperatorMessage']],
+    ['POST', '#^/api/support/chats/(?P<memberId>[a-zA-Z0-9_.-]+)/mode$#',         [\Iqteco\WaAdmin\Controllers\SupportController::class, 'setMode']],
+
     ['GET',  '#^/instances/(?P<id>\d+)/chat$#',                                  [\Iqteco\WaAdmin\Controllers\ChatController::class, 'show']],
     ['GET',  '#^/api/instances/(?P<id>\d+)/proxy/(?P<method>[a-zA-Z]+)$#',       [\Iqteco\WaAdmin\Controllers\InstanceProxyController::class, 'proxy']],
     ['POST', '#^/api/instances/(?P<id>\d+)/proxy/(?P<method>[a-zA-Z]+)$#',       [\Iqteco\WaAdmin\Controllers\InstanceProxyController::class, 'proxy']],

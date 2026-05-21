@@ -16,6 +16,7 @@ $user = $_SESSION['user_email'] ?? null;
     <nav>
         <a href="/dashboard"><?= View::e(I18n::t('nav.dashboard')) ?></a>
         <a href="/instances/new"><?= View::e(I18n::t('nav.new_instance')) ?></a>
+        <a href="/support">Support</a>
         <a href="/settings"><?= View::e(I18n::t('nav.settings')) ?></a>
     </nav>
     <?php if ($user): ?>

@@ -1,0 +1,179 @@
+/* Operator support panel. Reuses .wweb-* base from web_chat.css, adds the
+   info-card in the chat header and Take-over toggle. */
+
+.support-root .wweb-chat-header {
+    align-items: flex-start;
+    padding: 10px 14px 8px;
+    gap: 12px;
+}
+
+.support-info-card {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.support-info-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: #111b21;
+}
+.support-info-row-locale {
+    font-size: 12px;
+    color: #6b7280;
+}
+.support-info-domain { font-weight: 600; }
+.support-info-sep    { color: #9ca3af; }
+.support-info-plan   { color: #6b7280; margin-left: 6px; }
+.support-info-member {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #9ca3af;
+}
+
+.support-state-pill,
+.support-pay-pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+.support-state-pill                 { background: #e2e3e5; color: #383d41; }
+.support-state-pill.s-authorized    { background: #dff7df; color: #128C7E; }
+.support-state-pill.s-starting      { background: #fff3cd; color: #856404; }
+.support-state-pill.s-unpaired,
+.support-state-pill.s-notAuthorized { background: #f8d7da; color: #721c24; }
+.support-state-pill.s-sleepMode     { background: #e2e3e5; color: #383d41; }
+.support-state-pill.s-expired       { background: #f8d7da; color: #721c24; }
+
+.support-pay-pill.p-trial   { background: #cfe2ff; color: #084298; }
+.support-pay-pill.p-active  { background: #dff7df; color: #128C7E; }
+.support-pay-pill.p-expired { background: #f8d7da; color: #721c24; }
+.support-pay-pill.p-none    { background: #e2e3e5; color: #383d41; }
+.support-pay-pill.p-unknown { background: #e2e3e5; color: #383d41; }
+
+.support-mode-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+.support-mode-label {
+    font-size: 11px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.support-mode-label.mode-human { color: #084298; font-weight: 600; }
+.support-mode-label.mode-ai    { color: #128C7E; font-weight: 600; }
+.support-mode-btn {
+    background: #25d366;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.support-mode-btn:hover { background: #128C7E; }
+.support-mode-btn.is-human {
+    background: #2563eb;
+}
+.support-mode-btn.is-human:hover { background: #1d4ed8; }
+
+/* Bubbles override: AI vs operator vs customer. */
+.support-root .wweb-bubble.role-customer {
+    background: #fff;
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+}
+.support-root .wweb-bubble.role-ai {
+    background: #d9fdd3;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+.support-root .wweb-bubble.role-operator {
+    background: #cfe2ff;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+.support-root .wweb-bubble .author {
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+.support-root .wweb-bubble.role-ai .author       { color: #128C7E; }
+.support-root .wweb-bubble.role-operator .author { color: #084298; }
+.support-root .wweb-bubble.role-customer .author { color: #6b7280; }
+.support-root .wweb-bubble .time {
+    font-size: 10px;
+    color: #6b7280;
+    text-align: right;
+    margin-top: 2px;
+}
+
+/* Sidebar chat-item additions: portal info + mode badge. */
+.support-chat-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f3f4f6;
+}
+.support-chat-item:hover { background: #f9fafb; }
+.support-chat-item.active { background: #e7f3ff; }
+.support-chat-item .domain {
+    font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.support-chat-item .last {
+    color: #6b7280;
+    font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    grid-column: 1 / 3;
+}
+.support-chat-item .meta-line {
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    font-size: 11px; color: #6b7280;
+    grid-column: 1 / 3;
+}
+.support-chat-item .meta-line .pill {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 600;
+}
+.support-chat-item .meta-line .pill.mode-ai    { background: #dff7df; color: #128C7E; }
+.support-chat-item .meta-line .pill.mode-human { background: #cfe2ff; color: #084298; }
+.support-chat-item .unread-badge {
+    background: #25d366;
+    color: #fff;
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.support-misconfigured {
+    max-width: 720px;
+    margin: 60px auto;
+    padding: 20px;
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 8px;
+    color: #856404;
+}
+.support-misconfigured h2 { margin-top: 0; }
+.support-misconfigured code {
+    background: rgba(0,0,0,0.05);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: ui-monospace, monospace;
+}

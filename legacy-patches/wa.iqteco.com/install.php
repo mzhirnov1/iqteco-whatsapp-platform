@@ -8,6 +8,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/helpers/Logger.php';
 require_once __DIR__ . '/helpers/BxApi.php';
 require_once __DIR__ . '/helpers/I18n.php';
+require_once __DIR__ . '/helpers/FacebookCapi.php';
 
 // Route PHP error logs to logs/
 if (!is_dir(__DIR__ . '/logs')) { @mkdir(__DIR__ . '/logs', 0775, true); }
@@ -23,6 +24,7 @@ $db = Database::getInstance();
 $auth = $_REQUEST;
 $memberId = htmlspecialchars($auth['member_id']);
 $existingPortal = $db->getSettingsByMemberId($memberId);
+$isNewInstall = empty($existingPortal);
 
 // Guard against double-install (e.g. user double-clicked the install button
 // in Bitrix24, or B24 itself fired install_finish twice). Without this,
@@ -170,6 +172,28 @@ try {
     $logger->log('WARNING: placement.bind failed: ' . $e->getMessage());
 }
 
+// DEFAULT placement: in-app support chat opened from the installed app's main page.
+// Uses the Intercom-styled UI; the WhatsApp-Web variant remains available at
+// /placements/support_chat.php for fallback.
+try {
+    $supportUrl = 'https://' . $_SERVER['HTTP_HOST'] . $basePath . '/placements/support_chat_intercom.php';
+    $logger->log('Binding DEFAULT placement to ' . $supportUrl);
+    $bindSupport = $bxApi->callMethod('placement.bind', [
+        'PLACEMENT'   => 'DEFAULT',
+        'HANDLER'     => $supportUrl,
+        'TITLE'       => 'Support',
+        'DESCRIPTION' => 'Ask our AI assistant or a human operator',
+        'LANG_ALL'    => [
+            'en' => ['TITLE' => 'Support',     'DESCRIPTION' => 'Ask our AI assistant or a human operator'],
+            'ru' => ['TITLE' => 'Поддержка',   'DESCRIPTION' => 'Спросите AI-ассистента или живого оператора'],
+        ],
+    ]);
+    $logger->log('placement.bind DEFAULT result: ' . print_r($bindSupport, true));
+} catch (Throwable $e) {
+    // Already bound or B24 rejected — non-fatal.
+    $logger->log('WARNING: placement.bind DEFAULT failed: ' . $e->getMessage());
+}
+
 $logger->log('Binding ONAPPUNINSTALL event...');
 $bindRes = $bxApi->callMethod('event.bind', ['EVENT' => 'ONAPPUNINSTALL', 'HANDLER' => $handlerUrl]);
 $logger->log('event.bind ONAPPUNINSTALL result: ' . print_r($bindRes, true));
@@ -203,6 +227,44 @@ try {
     }
 } catch (Throwable $e) {
     $logger->log('WARNING: language auto-detect via user.current failed: ' . $e->getMessage());
+}
+
+// --- Facebook Conversion API: CompleteRegistration (только при первой установке) ---
+try {
+    $adminEmail = isset($cur['result']['EMAIL']) ? trim((string)$cur['result']['EMAIL']) : '';
+    if ($adminEmail !== '') {
+        $db->updatePortalFields($memberId, ['admin_email' => $adminEmail]);
+    }
+    if ($isNewInstall && $adminEmail !== '' && !empty($appConfig['fb_capi_enabled'])) {
+        $capi = new FacebookCapi($appConfig, $logger);
+        $ok = $capi->sendEvent(
+            'CompleteRegistration',
+            time(),
+            [
+                'em'                => $adminEmail,
+                'external_id'       => $memberId,
+                'client_ip_address' => $_SERVER['REMOTE_ADDR']     ?? null,
+                'client_user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+            ],
+            [
+                'content_name'  => 'Bitrix24 App Install',
+                'portal_domain' => (string)$auth['DOMAIN'],
+            ],
+            'https://' . $_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME'],
+            'system_generated',
+            'install_' . $memberId
+        );
+        if ($ok) {
+            $db->updatePortalFields($memberId, ['fb_capi_registration_sent_at' => new MongoDB\BSON\UTCDateTime()]);
+            $logger->log('Facebook CAPI CompleteRegistration sent for ' . substr($adminEmail, 0, 2) . '***');
+        } else {
+            $logger->log('Facebook CAPI CompleteRegistration NOT sent (disabled or API rejected).');
+        }
+    } else {
+        $logger->log('Facebook CAPI skipped: newInstall=' . ($isNewInstall ? '1' : '0') . ', hasEmail=' . ($adminEmail !== '' ? '1' : '0'));
+    }
+} catch (Throwable $e) {
+    $logger->log('WARNING: Facebook CAPI dispatch failed: ' . $e->getMessage());
 }
 
 $logger->log('Running DB migration...');

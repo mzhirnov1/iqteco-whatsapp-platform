@@ -58,6 +58,10 @@ return [
         'default_url' => wa_env('DEFAULT_WEBHOOK_URL') ?: '',
         'log_ttl_days' => 30,
     ],
+    'support' => [
+        'legacy_base_url' => wa_env('LEGACY_SUPPORT_BASE_URL') ?: 'https://wa.iqteco.com',
+        'shared_secret'   => wa_env('SUPPORT_SHARED_SECRET') ?: '',
+    ],
     'traffic' => [
         'hourly_mb' => 100,
         'daily_mb' => 500,
