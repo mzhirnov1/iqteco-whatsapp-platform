@@ -75,6 +75,26 @@ Bitrix24, которая существует в legacy-проекте `ssh root
    повторный `InstanceManager.run()` (RemoteAuth восстановит сессию из GridFS)
 5. `git commit` + `git push origin main`
 
+## API контракт — `docs/openapi.yaml`
+
+Машинно-читаемая спека OpenAPI 3.1, **source of truth для HTTP-контракта**.
+Покрывает все четыре поверхности: Green API (`waInstance/*`, 32 метода),
+исходящие webhook'и (15 типов), Partner API (4 метода) и
+Admin/Container API (8 эндпоинтов). Поддерживает оба типа инстансов —
+WhatsApp (`instance/`) и Telegram (`instance-telegram/`) — surface
+у них общий.
+
+При изменении любого REST-эндпоинта или формата webhook payload'а
+**сначала правим `docs/openapi.yaml`**, потом код. После правок
+обязательно прогоняем lint:
+
+```bash
+npx -y @redocly/cli@latest lint docs/openapi.yaml
+```
+
+`docs/API.md` — narrative-обзор, не источник истины. При расхождении
+спека выигрывает. Импорт в Postman: `File → Import → docs/openapi.yaml`.
+
 ## Verify первичный
 
 ```bash
