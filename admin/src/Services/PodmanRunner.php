@@ -9,7 +9,7 @@ final class PodmanRunner
 {
     public function __construct(private readonly array $config, private readonly Logger $logger) {}
 
-    private const NAME_PATTERN = '/^wa-\d{6,20}$/';
+    private const NAME_PATTERN = '/^(wa|tg)-\d{6,20}$/';
 
     /**
      * Запускает контейнер инстанса. Возвращает container id.
@@ -18,7 +18,9 @@ final class PodmanRunner
     public function run(array $opts): string
     {
         $name = $this->validateName($opts['name'] ?? '');
-        $image = (string)($this->config['podman']['image']);
+        $image = isset($opts['image']) && $opts['image'] !== ''
+            ? (string)$opts['image']
+            : (string)($this->config['podman']['image']);
 
         $env = $opts['env'] ?? [];
         $args = [

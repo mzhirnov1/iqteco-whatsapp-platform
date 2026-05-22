@@ -60,5 +60,6 @@ return [
     ['GET',  '#^/api/instances/(?P<id>\d+)/qr-poll$#',      [ApiInstanceController::class, 'qrPoll']],
     ['GET',  '#^/api/instances/(?P<id>\d+)/config$#',       [ApiInstanceController::class, 'config']],
     ['POST', '#^/api/instances/(?P<id>\d+)/state-change$#', [ApiInstanceController::class, 'stateChange']],
+    ['POST', '#^/api/instances/(?P<id>\d+)/tg-auth-submit$#', [ApiInstanceController::class, 'tgAuthSubmit']],
     ['POST', '#^/api/traffic-report$#',                     [ApiTrafficController::class, 'report']],
 ];

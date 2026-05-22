@@ -41,8 +41,14 @@ return [
         'binary' => '/usr/bin/podman',
         'sudo_binary' => '/usr/bin/sudo',
         'image' => wa_env('WA_IMAGE') ?: 'ghcr.io/mzhirnov1/iqteco-whatsapp-platform/wa-instance:latest',
+        'image_telegram' => wa_env('TG_IMAGE') ?: 'localhost/tg-instance:latest',
         'network' => 'wa-net',
         'name_prefix' => 'wa-',
+        'name_prefix_telegram' => 'tg-',
+    ],
+    'telegram' => [
+        'api_id' => wa_env('TG_API_ID') ?: '',
+        'api_hash' => wa_env('TG_API_HASH') ?: '',
     ],
     'ip_pool' => [
         'prefix' => wa_env('IPV6_PREFIX') ?: '2a01:4f8:221:2d8d:c0a8::',

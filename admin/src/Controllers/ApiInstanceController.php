@@ -156,4 +156,49 @@ final class ApiInstanceController
         );
         $this->respond(200, ['ok' => true]);
     }
+
+    /**
+     * Operator-facing endpoint: forwards a Telegram phone-code or 2FA password
+     * from the admin UI into the running tg-instance container via its
+     * Green-API-shaped POST /waInstance{id}/getAuthorizationCode/{token}.
+     */
+    public function tgAuthSubmit(array $params): void
+    {
+        if (empty($_SESSION['user_id'])) {
+            $this->respond(401, ['error' => 'unauthorized']);
+            return;
+        }
+        $id = (string)$params['id'];
+        $instance = MongoClient::db($this->config)->selectCollection('instances')->findOne(
+            ['idInstance' => $id],
+            ['projection' => ['type' => 1, 'ipv6' => 1, 'apiToken' => 1]]
+        );
+        if (!$instance) { $this->respond(404, ['error' => 'not_found']); return; }
+        if (($instance['type'] ?? 'whatsapp') !== 'telegram') {
+            $this->respond(400, ['error' => 'not_a_telegram_instance']);
+            return;
+        }
+        $ipv6 = (string)($instance['ipv6'] ?? '');
+        $token = (string)($instance['apiToken'] ?? '');
+        if ($ipv6 === '' || $token === '') {
+            $this->respond(500, ['error' => 'instance_not_ready']);
+            return;
+        }
+        $body = $this->readJson();
+        $url = sprintf('http://[%s]:8080/waInstance%s/getAuthorizationCode/%s', $ipv6, $id, $token);
+        $ctx = stream_context_create(['http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/json\r\n",
+            'content' => json_encode($body, JSON_UNESCAPED_UNICODE),
+            'timeout' => 15,
+            'ignore_errors' => true,
+        ]]);
+        $resp = @file_get_contents($url, false, $ctx);
+        if ($resp === false) {
+            $this->respond(502, ['error' => 'container_unreachable']);
+            return;
+        }
+        $decoded = json_decode($resp, true);
+        $this->respond(200, is_array($decoded) ? $decoded : ['raw' => $resp]);
+    }
 }

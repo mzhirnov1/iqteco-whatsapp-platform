@@ -46,11 +46,18 @@ final class InstanceController
         (new AuthService($this->config))->requireAuth();
         Csrf::requireValid();
 
+        $type = in_array($_POST['type'] ?? 'whatsapp', ['whatsapp', 'telegram'], true) ? $_POST['type'] : 'whatsapp';
+        $authMethod = $type === 'telegram'
+            ? ($_POST['tg_auth_method'] ?? 'tg_qr')
+            : ($_POST['auth_method'] ?? 'qr');
+
         try {
             $created = $this->manager()->create([
-                'authMethod' => $_POST['auth_method'] ?? 'qr',
+                'type' => $type,
+                'authMethod' => $authMethod,
                 'webhookUrl' => trim((string)($_POST['webhook_url'] ?? '')),
                 'ownerId' => $_SESSION['user_id'] ?? '',
+                'tgPhoneNumber' => trim((string)($_POST['tg_phone'] ?? '')),
             ]);
             header('Location: /instances/' . $created['idInstance']);
         } catch (\Throwable $e) {

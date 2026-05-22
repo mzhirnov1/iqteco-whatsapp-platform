@@ -10,10 +10,14 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
     ? date('Y-m-d H:i:s', $lastSeen->toDateTime()->getTimestamp())
     : '—';
 ?>
-<h1><?= View::e(I18n::t('instance.show.title', ['id' => $id])) ?></h1>
+<?php $instanceType = (string)($instance['type'] ?? 'whatsapp'); ?>
+<h1>
+    <?= View::e(I18n::t('instance.show.title', ['id' => $id])) ?>
+    <span class="badge badge-type-<?= View::e($instanceType) ?>"><?= $instanceType === 'telegram' ? 'Telegram' : 'WhatsApp' ?></span>
+</h1>
 
 <nav class="instance-subnav">
-    <a class="btn btn-primary btn-lg" href="/instances/<?= View::e($id) ?>/chat">💬 Open WhatsApp Web</a>
+    <a class="btn btn-primary btn-lg" href="/instances/<?= View::e($id) ?>/chat"><?= $instanceType === 'telegram' ? '💬 Open Telegram chat' : '💬 Open WhatsApp Web' ?></a>
     <a class="btn" href="/instances/<?= View::e($id) ?>/webhooks">📋 Webhook log</a>
     <span class="badge badge-state-<?= View::e((string)$state) ?>"><?= View::e((string)$state) ?></span>
     <?php if (!empty($instance['ipv6'])): ?>
@@ -46,6 +50,22 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
             <div id="qr-loading"><?= View::e(I18n::t('instance.show.qr_waiting')) ?></div>
         </div>
         <p id="pairing-code" class="pairing-code" style="display:none;"></p>
+        <div id="tg-code-form" class="tg-auth-form" style="display:none;">
+            <label>
+                <span><?= View::e(I18n::t('instance.show.tg_code_label') ?: 'Code from Telegram') ?></span>
+                <input type="text" id="tg-code-input" inputmode="numeric" autocomplete="one-time-code" placeholder="12345">
+            </label>
+            <button type="button" id="tg-code-submit" class="btn btn-primary"><?= View::e(I18n::t('instance.show.tg_code_submit') ?: 'Submit code') ?></button>
+            <small id="tg-code-status"></small>
+        </div>
+        <div id="tg-2fa-form" class="tg-auth-form" style="display:none;">
+            <label>
+                <span><?= View::e(I18n::t('instance.show.tg_2fa_label') ?: 'Two-factor password') ?></span>
+                <input type="password" id="tg-2fa-input" autocomplete="current-password">
+            </label>
+            <button type="button" id="tg-2fa-submit" class="btn btn-primary"><?= View::e(I18n::t('instance.show.tg_2fa_submit') ?: 'Submit password') ?></button>
+            <small id="tg-2fa-status"></small>
+        </div>
         <small id="qr-status"></small>
     </div>
 </div>
@@ -112,16 +132,36 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
                 return; // stop polling
             }
 
-            if (data.qr) {
-                if (data.kind === 'pairing_code') {
+            const tgCodeForm = document.getElementById('tg-code-form');
+            const tg2faForm = document.getElementById('tg-2fa-form');
+
+            const kind = data.kind || 'qr';
+            const showCode = kind === 'tg_phone_code';
+            const show2fa = kind === 'tg_2fa_password';
+            tgCodeForm.style.display = showCode ? 'block' : 'none';
+            tg2faForm.style.display = show2fa ? 'block' : 'none';
+
+            if (showCode) {
+                qrCont.innerHTML = '';
+                pairEl.style.display = 'none';
+                titleEl.textContent = 'Введите код из Telegram';
+            } else if (show2fa) {
+                qrCont.innerHTML = '';
+                pairEl.style.display = 'none';
+                titleEl.textContent = 'Введите пароль 2FA';
+            } else if (data.qr) {
+                if (kind === 'pairing_code') {
                     qrCont.innerHTML = '';
                     pairEl.style.display = 'block';
                     pairEl.textContent = data.qr;
                     titleEl.textContent = '<?= View::e(I18n::t('instance.show.pairing_code_title')) ?>';
                 } else {
                     pairEl.style.display = 'none';
-                    qrCont.innerHTML = '<img src="data:image/png;base64,' + data.qr + '" alt="qr" class="qr-img">';
-                    titleEl.textContent = '<?= View::e(I18n::t('instance.show.qr_title')) ?>';
+                    // PNG already includes the "data:image/png;base64," prefix when produced by tg-instance;
+                    // wa-instance sends raw base64 — accept both.
+                    const src = data.qr.startsWith('data:') ? data.qr : ('data:image/png;base64,' + data.qr);
+                    qrCont.innerHTML = '<img src="' + src + '" alt="qr" class="qr-img">';
+                    titleEl.textContent = kind === 'tg_qr' ? 'Telegram QR' : '<?= View::e(I18n::t('instance.show.qr_title')) ?>';
                 }
                 if (data.expiresAt) {
                     const expIn = data.expiresAt - Math.floor(Date.now() / 1000);
@@ -171,6 +211,47 @@ $lastSeenStr = $lastSeen instanceof \MongoDB\BSON\UTCDateTime
         setTimeout(refreshTraffic, 30000);
     }
     refreshTraffic();
+})();
+
+(function () {
+    const id = <?= json_encode($id) ?>;
+    const codeBtn = document.getElementById('tg-code-submit');
+    const codeInput = document.getElementById('tg-code-input');
+    const codeStatus = document.getElementById('tg-code-status');
+    const pwBtn = document.getElementById('tg-2fa-submit');
+    const pwInput = document.getElementById('tg-2fa-input');
+    const pwStatus = document.getElementById('tg-2fa-status');
+
+    async function submit(body, statusEl, btnEl) {
+        if (!statusEl || !btnEl) return;
+        btnEl.disabled = true;
+        statusEl.textContent = 'sending…';
+        try {
+            const res = await fetch('/api/instances/' + id + '/tg-auth-submit', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            const txt = await res.text();
+            statusEl.textContent = (res.ok ? 'OK: ' : 'error ' + res.status + ': ') + txt;
+        } catch (e) {
+            statusEl.textContent = 'exception: ' + e.message;
+        } finally {
+            btnEl.disabled = false;
+        }
+    }
+
+    if (codeBtn) codeBtn.addEventListener('click', function () {
+        const v = (codeInput.value || '').trim();
+        if (!v) { codeStatus.textContent = 'empty'; return; }
+        submit({ code: v }, codeStatus, codeBtn);
+    });
+    if (pwBtn) pwBtn.addEventListener('click', function () {
+        const v = pwInput.value || '';
+        if (!v) { pwStatus.textContent = 'empty'; return; }
+        submit({ password: v }, pwStatus, pwBtn);
+    });
 })();
 
 (function () {
