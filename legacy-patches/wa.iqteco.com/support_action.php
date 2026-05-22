@@ -151,7 +151,7 @@ if ($act === '') jerr(400, 'act required');
 // =============================================================
 // OPERATOR ACTIONS (require Bearer auth)
 // =============================================================
-$operatorActs = ['list_chats', 'poll_operator', 'send_operator', 'set_mode'];
+$operatorActs = ['list_chats', 'poll_operator', 'send_operator', 'set_mode', 'resolve_portals'];
 if (in_array($act, $operatorActs, true)) {
     $expected = (string)($appConfig['support_shared_secret'] ?? '');
     $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
@@ -275,6 +275,42 @@ if (in_array($act, $operatorActs, true)) {
         );
         $logger->log("mode set member=$memberId mode=$mode by=$opEmail");
         jok(['ok' => true, 'mode' => $mode]);
+    }
+
+    if ($act === 'resolve_portals') {
+        // Bulk-resolve member_id → portal context. Accepts member_ids as comma
+        // list or repeated POST/GET fields. Returns { portals: { mid: {...} } }.
+        $raw = $_REQUEST['member_ids'] ?? '';
+        $list = [];
+        if (is_array($raw)) {
+            foreach ($raw as $v) if ((string)$v !== '') $list[] = (string)$v;
+        } else {
+            foreach (preg_split('/[,\s]+/', (string)$raw, -1, PREG_SPLIT_NO_EMPTY) as $v) $list[] = (string)$v;
+        }
+        $list = array_values(array_unique($list));
+        if (count($list) > 500) jerr(400, 'too many ids');
+
+        $portalsCol = $client->selectDatabase($mongoDb)->selectCollection('portals');
+        $out = [];
+        if (!empty($list)) {
+            $cursor = $portalsCol->find(
+                ['member_id' => ['$in' => $list]],
+                ['projection' => ['member_id' => 1, 'domain' => 1, 'locale' => 1, 'instances' => 1, 'needs_relink' => 1]]
+            );
+            foreach ($cursor as $p) {
+                $p = (array)$p;
+                $ctx = portalCtxFor($p);
+                $out[(string)$p['member_id']] = [
+                    'domain'        => $ctx['domain'],
+                    'locale'        => $ctx['locale'],
+                    'needs_relink'  => !empty($p['needs_relink']),
+                    'idInstance'    => $ctx['idInstance'],
+                    'state'         => $ctx['state'],
+                    'paymentStatus' => $ctx['paymentStatus'],
+                ];
+            }
+        }
+        jok(['portals' => (object)$out]);
     }
 }
 
