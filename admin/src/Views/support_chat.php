@@ -4,7 +4,13 @@ use Iqteco\WaAdmin\Services\View;
 $operatorEmail = $user['email'] ?? '';
 ?>
 <link rel="stylesheet" href="/assets/web_chat.css">
-<link rel="stylesheet" href="/assets/support_chat.css">
+<?php
+$jsPath  = __DIR__ . '/../../public/assets/support_chat.js';
+$cssPath = __DIR__ . '/../../public/assets/support_chat.css';
+$jsVer   = is_file($jsPath)  ? (string) filemtime($jsPath)  : '1';
+$cssVer  = is_file($cssPath) ? (string) filemtime($cssPath) : '1';
+?>
+<link rel="stylesheet" href="/assets/support_chat.css?v=<?= View::e($cssVer) ?>">
 
 <?php if (empty($configured)): ?>
     <div class="support-misconfigured">
@@ -73,6 +79,6 @@ $operatorEmail = $user['email'] ?? '';
     </main>
 </div>
 
-<script src="/assets/support_chat.js"></script>
+<script src="/assets/support_chat.js?v=<?= View::e($jsVer) ?>"></script>
 
 <?php endif; ?>
