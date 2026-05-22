@@ -1,0 +1,2281 @@
+openapi: 3.1.0
+
+info:
+  title: iqteco WhatsApp / Telegram Platform — Green API Compatible
+  version: 0.1.0
+  summary: |
+    100% совместимый Green API REST для WhatsApp и Telegram инстансов.
+  description: |
+    Платформа iqteco-whatsapp-platform реплицирует контракт `green-api.com` так,
+    чтобы существующая интеграция Bitrix24 (`/var/www/wa.iqteco.com/handler.php`,
+    `helpers/GreenApi.php`, `helpers/GreenApiPartner.php`) могла переключаться
+    на наш сервер простой подменой `apiUrl` без правок в коде.
+
+    ### Поверхности API
+
+    1. **Green API (waInstance/\*)** — публичный REST контейнера инстанса
+       (`https://api.wa.iqteco.com`). Один и тот же URL-формат работает для
+       WhatsApp (Node + whatsapp-web.js) и Telegram (Python + Telethon)
+       инстансов — клиент об этом знать не должен.
+    2. **Webhooks** — исходящие POST уведомления, которые контейнер шлёт на
+       `webhookUrl` инстанса (раздел `webhooks` ниже).
+    3. **Partner API** — внешний API на админке (`https://admin.wa.iqteco.com`)
+       для создания / удаления / списка инстансов (как у green-api.com partner).
+    4. **Admin/Container API** — служебные эндпоинты между контейнером
+       инстанса и админкой (heartbeat, register, qr, config, traffic).
+       Не публикуем для конечных интеграторов.
+
+    ### Авторизация
+
+    | Поверхность | Способ |
+    |---|---|
+    | Green API | `apiTokenInstance` (50 hex chars) в path |
+    | Partner API | `PARTNER_TOKEN` (env) в path или заголовке `X-Partner-Token` |
+    | Admin/Container API | `X-Admin-Token` заголовок (shared secret) |
+    | Webhooks (входящие на клиенте) | опциональный HMAC-SHA256 в `X-Webhook-Signature: sha256=<hex>` |
+
+    ### Формат ошибок
+
+    Все ошибки — JSON `{ "error": "<code>", "message": "<details?>" }` с
+    соответствующим HTTP кодом. Специфичный для Green API код `466
+    instanceNotAuthorized` возвращается, когда инстанс не в state `authorized`.
+
+    ### Чат-IDs (chatId)
+
+    - WhatsApp: `<digits>@c.us` (контакт), `<digits>-<digits>@g.us` (группа).
+    - Telegram: те же `@c.us` / `@g.us` суффиксы для совместимости — внутри
+      `instance-telegram` они мапятся на Telethon peer-IDs.
+    - В большинстве `sendXxx` методов принимается и «голый» номер
+      (`79991234567`) — резолвер дополнит до `@c.us`.
+
+  contact:
+    name: iqteco platform
+    url: https://github.com/mzhirnov1/iqteco-whatsapp-platform
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.wa.iqteco.com
+    description: Публичный Green API (Green API совместимый)
+  - url: https://admin.wa.iqteco.com
+    description: Admin / Partner API
+
+tags:
+  - name: account
+    description: Состояние инстанса, авторизация, настройки.
+  - name: sending
+    description: Отправка сообщений всех типов.
+  - name: messages
+    description: Редактирование, удаление, пересылка.
+  - name: chats
+    description: Управление чатами (read, archive).
+  - name: queries
+    description: Чтение контактов, чатов, истории сообщений.
+  - name: media
+    description: Скачивание медиа-файлов по `downloadUrl` из webhook'ов.
+  - name: notifications
+    description: Push-only stub для legacy pull-клиентов.
+  - name: partner
+    description: Управление инстансами (Green API Partner совместимый).
+  - name: admin-container
+    description: Служебные эндпоинты между контейнером и админкой.
+
+paths:
+
+  # =============================================================
+  # Account / State
+  # =============================================================
+
+  /waInstance{idInstance}/getStateInstance/{token}:
+    get:
+      tags: [account]
+      summary: Получить состояние инстанса
+      description: |
+        Возвращает текущее состояние авторизации инстанса. Самый частый
+        polling-endpoint у legacy интеграции — `handler.php` дергает его
+        перед каждой отправкой, чтобы убедиться, что инстанс `authorized`.
+
+        Маппинг внутренних состояний WhatsApp/Telegram → Green API см. в
+        схеме `StateInstance`.
+      operationId: getStateInstance
+      security:
+        - ApiTokenInUrl: []
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stateInstance]
+                properties:
+                  stateInstance: { $ref: '#/components/schemas/StateInstance' }
+              example:
+                stateInstance: authorized
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UnknownInstance' }
+
+  /waInstance{idInstance}/getStatusInstance/{token}:
+    get:
+      tags: [account]
+      summary: Алиас getStateInstance (legacy)
+      description: |
+        Точный alias для `getStateInstance`, добавлен для совместимости со
+        старыми клиентами Green API, которые называли метод
+        `getStatusInstance`. Возвращает ту же структуру.
+      operationId: getStatusInstance
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stateInstance]
+                properties:
+                  stateInstance: { $ref: '#/components/schemas/StateInstance' }
+
+  /waInstance{idInstance}/getSettings/{token}:
+    get:
+      tags: [account]
+      summary: Получить настройки инстанса
+      description: |
+        Возвращает текущие настройки: webhook URL, флаги типов webhook'ов,
+        задержка между отправками, опции автоматического прочтения и т.д.
+        Все флаги — строки `"yes"`/`"no"` для совместимости с Green API.
+      operationId: getSettings
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+
+  /waInstance{idInstance}/setSettings/{token}:
+    post:
+      tags: [account]
+      summary: Обновить настройки инстанса
+      description: |
+        Принимает подмножество полей из `Settings`. Поля, отсутствующие в
+        body, не меняются. Изменения применяются мгновенно — рестарт не
+        требуется. Контейнер также POST'ит копию body в админку для
+        персистентности (admin — source of truth).
+      operationId: setSettings
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Settings'
+              description: Все поля опциональны; передаётся только то, что нужно изменить.
+            examples:
+              webhook-only:
+                summary: Сменить только webhook URL
+                value: { webhookUrl: "https://example.com/wa-hook" }
+              flags:
+                summary: Включить edited / deleted уведомления
+                value:
+                  editedMessageWebhook: "yes"
+                  deletedMessageWebhook: "yes"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  saveSettings: { type: boolean, example: true }
+
+  /waInstance{idInstance}/getQrCode/{token}:
+    get:
+      tags: [account]
+      summary: Получить QR-код для авторизации
+      description: |
+        Сценарии:
+
+        - `type=qrCode` — base64 PNG QR-кода готов, отсканируйте его в
+          WhatsApp → Linked devices.
+        - `type=alreadyLogged` — инстанс уже авторизован, новый QR не
+          нужен.
+        - `type=starting` (WA) / `type=waiting` (TG) — клиент ещё
+          инициализируется, опрашивайте через 1-2 сек.
+      operationId: getQrCode
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      type: { type: string, enum: [qrCode] }
+                      message: { type: string, description: base64 PNG }
+                  - type: object
+                    properties:
+                      type: { type: string, enum: [alreadyLogged] }
+                  - type: object
+                    properties:
+                      type: { type: string, enum: [starting, waiting] }
+              examples:
+                qr-ready:
+                  value: { type: qrCode, message: "iVBORw0KGgoAAAANSUhEUgAA..." }
+                already:
+                  value: { type: alreadyLogged }
+
+  /waInstance{idInstance}/qr/{token}:
+    get:
+      tags: [account]
+      summary: Алиас getQrCode (legacy)
+      description: |
+        Полный alias для `getQrCode`. Используется legacy
+        `helpers/GreenApi.php::getQrCode()`.
+      operationId: getQrAlias
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /waInstance{idInstance}/getAuthorizationCode/{token}:
+    get:
+      tags: [account]
+      summary: Получить код парирования (WhatsApp)
+      description: |
+        **WhatsApp:** возвращает 8-значный код, который нужно ввести в
+        мобильном приложении (Linked devices → Link with phone number).
+        Параметр `phoneNumber` — только цифры.
+
+        **Telegram (GET):** возвращает закэшированный код активной сессии
+        логина, если он есть; иначе `{status:false}`. Сабмит кодов
+        делается через POST-вариант этого же endpoint'а.
+      operationId: getAuthorizationCode
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+        - in: query
+          name: phoneNumber
+          required: false
+          schema: { type: string, pattern: '^[0-9]+$' }
+          description: Только для WhatsApp; обязательно если не передано в body.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      status: { const: true }
+                      code: { type: string, example: "ABCD-1234" }
+                  - type: object
+                    properties:
+                      status: { const: false }
+                      message: { type: string }
+        '400':
+          description: Bad request — `phoneNumber required` или `instance_already_authorized`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { const: false }
+                  error: { type: string }
+    post:
+      tags: [account]
+      summary: Запросить код парирования / подтвердить логин
+      description: |
+        **WhatsApp:** тот же запрос, что и GET, но `phoneNumber` идёт в
+        body.
+
+        **Telegram:** служебный endpoint админ-UI — пересылает
+        введённые оператором поля в Telethon login flow:
+
+        - `{ "phone": "+380..." }` — отправляет запрос на код в Telegram.
+        - `{ "code": "12345" }` — подтверждает SMS/in-app код.
+        - `{ "password": "..." }` — 2FA пароль cloud password.
+      operationId: getAuthorizationCodePost
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber: { type: string, pattern: '^[0-9]+$', description: 'WhatsApp pairing — только цифры.' }
+                phone: { type: string, description: 'Telegram phone in E.164 (`+380...`).' }
+                code: { type: string, description: 'Telegram login code.' }
+                password: { type: string, description: 'Telegram 2FA cloud password.' }
+            examples:
+              wa-pairing:
+                value: { phoneNumber: "79991234567" }
+              tg-phone:
+                value: { phone: "+79991234567" }
+              tg-code:
+                value: { code: "12345" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: object }
+
+  /waInstance{idInstance}/reboot/{token}:
+    get:
+      tags: [account]
+      summary: Перезагрузить клиент инстанса
+      description: |
+        Перезагружает Chromium (WhatsApp) или пере-подключает Telethon
+        клиент. Ответ возвращается сразу; ребут выполняется асинхронно.
+        Сессия в GridFS сохраняется — повторный логин не нужен.
+      operationId: reboot
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isReboot: { const: true }
+
+  /waInstance{idInstance}/logout/{token}:
+    get:
+      tags: [account]
+      summary: Разорвать сессию (logout)
+      description: |
+        Разрывает сессию в WhatsApp/Telegram и удаляет сохранённую
+        авторизацию. После этого инстанс перейдёт в `notAuthorized` и
+        для повторного логина потребуется QR / pairing code.
+      operationId: logout
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isLogout: { const: true }
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isLogout: { const: false }
+                  error: { type: string }
+
+  # =============================================================
+  # Sending
+  # =============================================================
+
+  /waInstance{idInstance}/sendMessage/{token}:
+    post:
+      tags: [sending]
+      summary: Отправить текстовое сообщение
+      description: |
+        Главный метод отправки. `chatId` принимается в двух формах:
+        полный JID (`79991234567@c.us`) или «голый» номер, который
+        резолвер дополнит. Если номер не зарегистрирован в WhatsApp —
+        ответ HTTP 200 с `idMessage:null` и полем `error` (Green API
+        контракт; решение что делать дальше — на клиенте).
+      operationId: sendMessage
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId, message]
+              properties:
+                chatId: { type: string, example: "79991234567@c.us" }
+                message: { type: string, example: "Привет!" }
+                quotedMessageId: { type: string, description: 'idMessage сообщения, на которое цитируем ответ.' }
+      responses:
+        '200':
+          description: |
+            OK. Если `idMessage:null` — отправка пропущена (например, номер
+            не в WA); подробности — в поле `error`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdMessageResponse' }
+        '400':
+          description: Bad request
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500':
+          description: send_failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /waInstance{idInstance}/sendFileByUrl/{token}:
+    post:
+      tags: [sending]
+      summary: Отправить файл (загрузка по URL)
+      description: |
+        Контейнер сам качает файл по `urlFile` и отправляет его в чат.
+        Файлы офисных/архивных форматов (`pdf`, `doc/x`, `xls/x`, `zip`,
+        `rar`, `7z`, `txt`, `csv`) отправляются как документ.
+      operationId: sendFileByUrl
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId, urlFile]
+              properties:
+                chatId: { type: string }
+                urlFile: { type: string, format: uri, example: "https://example.com/doc.pdf" }
+                fileName: { type: string, example: "invoice.pdf" }
+                caption: { type: string }
+                quotedMessageId: { type: string }
+      responses:
+        '200': { description: 'OK', content: { application/json: { schema: { $ref: '#/components/schemas/IdMessageResponse' } } } }
+        '400': { description: 'chatId and urlFile required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'send_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/sendImageByUrl/{token}:
+    post:
+      tags: [sending]
+      summary: Отправить изображение по URL
+      description: |
+        Идентично `sendFileByUrl`, но всегда отправляет как медиа
+        (`sendMediaAsDocument=false`) — превью генерируется автоматически.
+      operationId: sendImageByUrl
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId, urlFile]
+              properties:
+                chatId: { type: string }
+                urlFile: { type: string, format: uri }
+                fileName: { type: string }
+                caption: { type: string }
+                quotedMessageId: { type: string }
+      responses:
+        '200': { description: 'OK', content: { application/json: { schema: { $ref: '#/components/schemas/IdMessageResponse' } } } }
+        '400': { description: 'chatId and urlFile required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'send_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/sendFileByUpload/{token}:
+    post:
+      tags: [sending]
+      summary: Отправить файл (multipart upload)
+      description: |
+        Лимит размера — **100 MB**. Поле `file` обязательно. Если
+        `fileName` не задан — берётся `originalname` из multipart.
+      operationId: sendFileByUpload
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, chatId]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Файл до 100 MB.
+                chatId: { type: string }
+                caption: { type: string }
+                fileName: { type: string }
+      responses:
+        '200': { description: 'OK', content: { application/json: { schema: { $ref: '#/components/schemas/IdMessageResponse' } } } }
+        '400':
+          description: file/chatId required
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'send_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/sendLocation/{token}:
+    post:
+      tags: [sending]
+      summary: Отправить геолокацию
+      description: |
+        Координаты `latitude`/`longitude` — числа. `nameLocation` и
+        `address` опциональны (отображаются в карточке геолокации).
+      operationId: sendLocation
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId, latitude, longitude]
+              properties:
+                chatId: { type: string }
+                latitude: { type: number, format: double, example: 55.7558 }
+                longitude: { type: number, format: double, example: 37.6173 }
+                nameLocation: { type: string }
+                address: { type: string }
+                quotedMessageId: { type: string }
+      responses:
+        '200': { description: 'OK', content: { application/json: { schema: { $ref: '#/components/schemas/IdMessageResponse' } } } }
+        '400': { description: 'chatId, latitude, longitude required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'send_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/sendContact/{token}:
+    post:
+      tags: [sending]
+      summary: Отправить контакт (vCard)
+      description: |
+        Принимает один контакт через `contact` или несколько через
+        `contactsArray`. Из переданного `phoneContact`/`phone` строится
+        vCard автоматически.
+      operationId: sendContact
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId]
+              properties:
+                chatId: { type: string }
+                contact:
+                  type: object
+                  properties:
+                    phoneContact: { type: string }
+                    phone: { type: string }
+                contactsArray:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      phoneContact: { type: string }
+                      phone: { type: string }
+                quotedMessageId: { type: string }
+              description: '`contact` ИЛИ `contactsArray` — обязательно одно из них.'
+      responses:
+        '200': { description: 'OK', content: { application/json: { schema: { $ref: '#/components/schemas/IdMessageResponse' } } } }
+        '400': { description: 'chatId required / contactsArray or contact required / no valid contacts', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'send_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/forwardMessages/{token}:
+    post:
+      tags: [messages]
+      summary: Переслать сообщения в другой чат
+      description: |
+        Принимает массив `idMessage` для пересылки из `chatIdFrom` в
+        `chatId`. Ответ — массив результатов по каждому ID (некоторые
+        могут зафейлиться, остальные — отправятся).
+      operationId: forwardMessages
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId, chatIdFrom, messages]
+              properties:
+                chatId: { type: string, description: Целевой чат. }
+                chatIdFrom: { type: string, description: Исходный чат. }
+                messages:
+                  type: array
+                  items: { type: string }
+                  description: idMessage пересылаемых сообщений.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  forwarded:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        idMessage: { type: string }
+                        forwardedId: { type: [string, 'null'] }
+                        error: { type: string }
+        '400': { description: 'chatId, chatIdFrom, messages[] required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+
+  /waInstance{idInstance}/markChatAsRead/{token}:
+    post:
+      tags: [chats]
+      summary: Отметить чат прочитанным
+      description: Снимает счётчик непрочитанных у чата (вызывает `sendSeen`).
+      operationId: markChatAsRead
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId]
+              properties:
+                chatId: { type: string }
+      responses:
+        '200': { description: 'OK', content: { application/json: { schema: { type: object, properties: { setUnreadMessages: { const: true } } } } } }
+        '400': { description: 'chatId required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'mark_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  # =============================================================
+  # Edit / delete / archive
+  # =============================================================
+
+  /waInstance{idInstance}/editMessage/{token}:
+    post:
+      tags: [messages]
+      summary: Отредактировать своё сообщение
+      description: |
+        Только для отправленных нами сообщений (`fromMe=true`) в пределах
+        TTL редактирования WhatsApp (~15 минут после отправки). Чужие
+        сообщения вернут `can_only_edit_own_messages`.
+      operationId: editMessage
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId, idMessage, message]
+              properties:
+                chatId: { type: string }
+                idMessage: { type: string }
+                message: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  idMessage: { type: string }
+                  edited: { const: true }
+        '400': { description: 'required-fields / can_only_edit_own_messages', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: 'message_not_found', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'edit_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/deleteMessage/{token}:
+    post:
+      tags: [messages]
+      summary: Удалить сообщение
+      description: |
+        По умолчанию удаляет для всех (revoke). `onlyForMe:true` —
+        удалить только локально.
+      operationId: deleteMessage
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId, idMessage]
+              properties:
+                chatId: { type: string }
+                idMessage: { type: string }
+                onlyForMe: { type: boolean, default: false }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  idMessage: { type: string }
+                  deleted: { const: true }
+        '400': { description: 'chatId and idMessage required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: 'message_not_found', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'delete_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/archiveChat/{token}:
+    post:
+      tags: [chats]
+      summary: Архивировать чат
+      operationId: archiveChat
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId]
+              properties:
+                chatId: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chatId: { type: string }
+                  archived: { const: true }
+        '400': { description: 'chatId required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'archive_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/unarchiveChat/{token}:
+    post:
+      tags: [chats]
+      summary: Разархивировать чат
+      operationId: unarchiveChat
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId]
+              properties:
+                chatId: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chatId: { type: string }
+                  archived: { const: false }
+        '400': { description: 'chatId required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'archive_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  # =============================================================
+  # Queries
+  # =============================================================
+
+  /waInstance{idInstance}/checkWhatsapp/{token}:
+    get:
+      tags: [queries]
+      summary: Проверить регистрацию номера в WhatsApp
+      description: |
+        **WhatsApp only.** Telegram-инстансы возвращают HTTP 501
+        (fallback). Параметр `phoneNumber` принимается и в query, и в body.
+      operationId: checkWhatsapp
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+        - in: query
+          name: phoneNumber
+          schema: { type: string, pattern: '^[0-9]+$' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  existsWhatsapp: { type: boolean }
+        '400': { description: 'phoneNumber required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500':
+          description: error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  existsWhatsapp: { const: false }
+                  error: { type: string }
+    post:
+      tags: [queries]
+      summary: Проверить регистрацию номера (body)
+      operationId: checkWhatsappPost
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phoneNumber]
+              properties:
+                phoneNumber: { type: string, pattern: '^[0-9]+$' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  existsWhatsapp: { type: boolean }
+
+  /waInstance{idInstance}/getContacts/{token}:
+    get:
+      tags: [queries]
+      summary: Список всех контактов
+      description: |
+        Возвращает все контакты, известные клиенту WhatsApp/Telegram.
+        Самого себя (isMe) — исключаем.
+      operationId: getContacts
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ContactItem' }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'fetch_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/getChats/{token}:
+    get:
+      tags: [queries]
+      summary: Список всех чатов
+      description: |
+        Сортировка — по `lastTimestamp` убыванием (самые свежие сверху).
+        Status-broadcast (`@broadcast`) — отфильтрован.
+      operationId: getChats
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ChatItem' }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'fetch_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/getContactInfo/{token}:
+    post:
+      tags: [queries]
+      summary: Детали контакта по chatId
+      description: |
+        **WhatsApp only.** Возвращает имя, email (если есть в Business
+        Profile), описание категорию, ссылку на аватар.
+      operationId: getContactInfo
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId]
+              properties:
+                chatId: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  avatar: { type: string }
+                  name: { type: string }
+                  contactName: { type: string }
+                  email: { type: string }
+                  category: { type: string }
+                  description: { type: string }
+                  products: { type: array, items: { type: object } }
+                  chatId: { type: string }
+                  lastSeen: { type: [string, 'null'] }
+        '400': { description: 'chatId required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'fetch_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/getAvatar/{token}:
+    get:
+      tags: [queries]
+      summary: URL аватара (query)
+      description: |
+        **WhatsApp only.** Возвращает URL аватара (CDN WhatsApp) либо
+        `urlAvatar:""` с `reason` если аватар скрыт или контакт не найден.
+      operationId: getAvatar
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+        - in: query
+          name: chatId
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  urlAvatar: { type: string, format: uri }
+                  reason: { type: string }
+                  available: { type: boolean }
+        '400': { description: 'chatId required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+    post:
+      tags: [queries]
+      summary: URL аватара (body)
+      operationId: getAvatarPost
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId]
+              properties:
+                chatId: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  urlAvatar: { type: string }
+                  reason: { type: string }
+                  available: { type: boolean }
+
+  /waInstance{idInstance}/getChatHistory/{token}:
+    post:
+      tags: [queries]
+      summary: История сообщений чата
+      description: |
+        Возвращает до `count` последних сообщений (по умолчанию 100,
+        максимум 500), отсортированных по времени по возрастанию
+        (старые → новые).
+      operationId: getChatHistory
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chatId]
+              properties:
+                chatId: { type: string }
+                count: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MessageHistoryItem' }
+        '400': { description: 'chatId required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '466': { $ref: '#/components/responses/NotAuthorized466' }
+        '500': { description: 'fetch_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/lastIncomingMessages/{token}:
+    get:
+      tags: [queries]
+      summary: Последние входящие за период
+      description: |
+        Возвращает входящие сообщения, попавшие в `messageStore` за
+        последние `minutes` минут (по умолчанию 1440 = 24h).
+      operationId: lastIncomingMessages
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+        - in: query
+          name: minutes
+          schema: { type: integer, default: 1440 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    idMessage: { type: string }
+                    timestamp: { type: integer }
+                    typeMessage: { $ref: '#/components/schemas/TypeMessage' }
+                    chatId: { type: string }
+                    senderId: { type: string }
+                    senderName: { type: string }
+                    textMessage: { type: string }
+        '500': { description: 'fetch_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /waInstance{idInstance}/lastOutgoingMessages/{token}:
+    get:
+      tags: [queries]
+      summary: Последние исходящие за период
+      operationId: lastOutgoingMessages
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+        - in: query
+          name: minutes
+          schema: { type: integer, default: 1440 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    idMessage: { type: string }
+                    timestamp: { type: integer }
+                    typeMessage: { $ref: '#/components/schemas/TypeMessage' }
+                    chatId: { type: string }
+                    textMessage: { type: string }
+                    statusMessage: { $ref: '#/components/schemas/MessageStatus' }
+                    sendByApi: { type: [boolean, 'null'] }
+        '500': { description: 'fetch_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  # =============================================================
+  # Media
+  # =============================================================
+
+  /waInstance{idInstance}/media/{token}/{messageId}:
+    get:
+      tags: [media]
+      summary: Скачать медиа-файл сообщения
+      description: |
+        URL такого вида попадает в `downloadUrl` входящих webhook'ов с
+        вложениями. К `messageId` можно дописывать расширение (например,
+        `.mp4`, `.ogg`) — сервер игнорирует его при поиске, но Bitrix24
+        и другие потребители используют расширение для детекта типа.
+
+        Ответ — бинарный поток с заголовками `Content-Type`,
+        `Content-Disposition: inline`, `Content-Length`,
+        `Cache-Control: private, max-age=3600`.
+      operationId: media
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+        - in: path
+          name: messageId
+          required: true
+          schema: { type: string }
+          description: idMessage (необязательно с расширением `.mp4`/`.jpg`/...).
+      responses:
+        '200':
+          description: Бинарный поток
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+          headers:
+            Content-Disposition:
+              schema: { type: string, example: 'inline; filename="..."' }
+            Content-Length:
+              schema: { type: integer }
+            Cache-Control:
+              schema: { type: string, example: 'private, max-age=3600' }
+        '404':
+          description: media_not_found
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  # =============================================================
+  # Notifications (push-only stub)
+  # =============================================================
+
+  /waInstance{idInstance}/receiveNotification/{token}:
+    get:
+      tags: [notifications]
+      summary: Pull notification (всегда null)
+      description: |
+        Платформа работает в **push-only** режиме (все события приходят
+        через webhook'и). Pull-эндпоинт сохранён для совместимости со
+        старыми клиентами Green API и всегда возвращает `null`.
+      operationId: receiveNotification
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: 'null' }
+
+  /waInstance{idInstance}/deleteNotification/{token}/{receiptId}:
+    delete:
+      tags: [notifications]
+      summary: Удалить notification (stub)
+      description: Stub. Всегда `{result:false}`, push-режим.
+      operationId: deleteNotification
+      security: [ApiTokenInUrl: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInstance'
+        - $ref: '#/components/parameters/ApiToken'
+        - in: path
+          name: receiptId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result: { const: false }
+
+  # =============================================================
+  # Partner API
+  # =============================================================
+
+  /api/partner/createInstance/{token}:
+    post:
+      tags: [partner]
+      summary: Создать инстанс
+      description: |
+        Аналог `api.green-api.com/partner/createInstance/{token}`. Токен
+        в URL пути (или в заголовке `X-Partner-Token`). При создании
+        выделяется IPv6 из пула, запускается Podman контейнер.
+
+        Ответ содержит и `id`/`api_token` (legacy form), и
+        `idInstance`/`apiTokenInstance` (новые имена) — клиенты Green
+        API ожидают разные варианты.
+      operationId: partnerCreateInstance
+      servers:
+        - url: https://admin.wa.iqteco.com
+      security:
+        - PartnerTokenInUrl: []
+        - PartnerTokenHeader: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, description: 'Произвольный owner-tag для группировки.' }
+                webhookUrl: { type: string, format: uri }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, example: "1101000001" }
+                  api_token: { type: string }
+                  apiUrl: { type: string, format: uri, example: "https://api.wa.iqteco.com" }
+                  idInstance: { type: string }
+                  apiTokenInstance: { type: string }
+        '401': { description: 'unauthorized', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '500': { description: 'create_failed / partner_token_not_configured', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/partner/deleteInstanceAccount/{token}:
+    post:
+      tags: [partner]
+      summary: Удалить инстанс (по body)
+      description: |
+        Идентично legacy Green API: `idInstance` передаётся в body. Реальное
+        удаление контейнера происходит через 24h grace period (биллинговый
+        запас — клиент может оплатить и вернуться).
+      operationId: partnerDeleteInstanceAccount
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security:
+        - PartnerTokenInUrl: []
+        - PartnerTokenHeader: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idInstance]
+              properties:
+                idInstance: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleteInstanceAccount: { const: 1 }
+                  idInstance: { type: string }
+        '400': { description: 'idInstance required', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { description: 'unauthorized', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '500': { description: 'delete_failed', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/partner/deleteInstance/{token}/{id}:
+    post:
+      tags: [partner]
+      summary: Удалить инстанс (по URL)
+      description: Альтернативный путь удаления — `idInstance` в URL.
+      operationId: partnerDeleteInstance
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security:
+        - PartnerTokenInUrl: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleteInstanceAccount: { const: 1 }
+                  idInstance: { type: string }
+
+  /api/partner/getInstances/{token}:
+    get:
+      tags: [partner]
+      summary: Список инстансов
+      description: |
+        Возвращает все инстансы партнёра (внутренний warm-pool скрыт).
+        Сортировка — по `createdAt` убыванием, лимит 500.
+      operationId: partnerGetInstances
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security:
+        - PartnerTokenInUrl: []
+        - PartnerTokenHeader: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    idInstance: { type: string }
+                    apiTokenInstance: { type: string }
+                    apiUrl: { type: string, format: uri }
+                    state: { $ref: '#/components/schemas/StateInstance' }
+                    ipv6: { type: string }
+                    phoneNumber: { type: string }
+                    name: { type: string }
+
+  # =============================================================
+  # Admin / Container API (X-Admin-Token)
+  # =============================================================
+
+  /api/instances/{id}/register:
+    post:
+      tags: [admin-container]
+      summary: '[internal] Регистрация контейнера при старте'
+      description: |
+        Контейнер инстанса POST'ит сюда при первом запуске —
+        регистрирует PID, версию билда, IPv6, начальное состояние.
+        Только для контейнеров (X-Admin-Token).
+      operationId: containerRegister
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security:
+        - AdminToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdInPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pid: { type: integer }
+                version: { type: string }
+                ipv6: { type: string }
+                state: { $ref: '#/components/schemas/StateInstance' }
+      responses:
+        '200': { description: 'OK', content: { application/json: { schema: { type: object, properties: { ok: { const: true } } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/instances/{id}/heartbeat:
+    post:
+      tags: [admin-container]
+      summary: '[internal] Heartbeat от контейнера'
+      description: |
+        Контейнер шлёт heartbeat каждые ~30 сек. Содержит текущее
+        состояние, `wid` (номер аккаунта), время последнего события.
+        Из `wid` извлекается `phoneNumber` (цифры до `@`).
+      operationId: containerHeartbeat
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security: [AdminToken: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state: { $ref: '#/components/schemas/StateInstance' }
+                wid: { type: string, example: "79991234567@c.us" }
+                lastEventAt: { type: integer, description: 'Unix seconds.' }
+      responses:
+        '200': { description: 'OK', content: { application/json: { schema: { type: object, properties: { ok: { const: true } } } } } }
+
+  /api/instances/{id}/qr:
+    post:
+      tags: [admin-container]
+      summary: '[internal] Сохранить QR от контейнера'
+      description: |
+        Контейнер шлёт сюда сгенерированный QR / pairing code, чтобы
+        админ-UI мог показать его оператору.
+      operationId: containerQr
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security: [AdminToken: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                qr: { type: string, description: 'data:image/png;base64,... или сырой код.' }
+                kind: { type: string, enum: [qr, pairing_code] }
+                expiresAt: { type: integer, description: 'Unix seconds.' }
+      responses:
+        '200': { description: OK }
+
+  /api/instances/{id}/qr-poll:
+    get:
+      tags: [admin-container]
+      summary: '[internal] Poll QR из админ-UI'
+      description: |
+        Возвращает последний сохранённый QR-код. Используется
+        фронтендом админки. Аутентификация — сессия пользователя
+        (cookie), не X-Admin-Token.
+      operationId: qrPoll
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/IdInPath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  qr: { type: [string, 'null'] }
+                  kind: { type: string, enum: [qr, pairing_code] }
+                  state: { $ref: '#/components/schemas/StateInstance' }
+                  qrAt: { type: [integer, 'null'] }
+                  expiresAt: { type: [integer, 'null'] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: 'not_found', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/instances/{id}/config:
+    get:
+      tags: [admin-container]
+      summary: '[internal] Конфиг инстанса для контейнера'
+      description: |
+        Контейнер дёргает при старте: получает `webhookUrl`,
+        `webhookSecret` (HMAC) и текущий объект `settings`.
+      operationId: containerConfig
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security: [AdminToken: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInPath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webhookUrl: { type: [string, 'null'] }
+                  webhookSecret: { type: [string, 'null'] }
+                  settings: { $ref: '#/components/schemas/Settings' }
+        '404': { description: 'unknown_instance', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/instances/{id}/state-change:
+    post:
+      tags: [admin-container]
+      summary: '[internal] Уведомление о смене состояния'
+      description: |
+        Контейнер сообщает админке об изменении state-машины (например,
+        переход `starting → authorized`). Сохраняется в `instances` как
+        `state`/`previousState`/`stateChangedAt`/`stateChangeReason`.
+      operationId: containerStateChange
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security: [AdminToken: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from: { $ref: '#/components/schemas/StateInstance' }
+                to: { $ref: '#/components/schemas/StateInstance' }
+                reason: { type: string, example: 'wa:CONNECTED' }
+      responses:
+        '200': { description: OK }
+
+  /api/instances/{id}/tg-auth-submit:
+    post:
+      tags: [admin-container]
+      summary: '[internal] Submit Telegram auth от оператора'
+      description: |
+        Оператор админ-UI вводит phone/code/password для логина
+        Telegram-инстанса; админка форвардит body внутрь контейнера
+        (на его `POST /getAuthorizationCode/{token}`). Только для
+        инстансов с `type=telegram`.
+      operationId: tgAuthSubmit
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security: [SessionCookie: []]
+      parameters:
+        - $ref: '#/components/parameters/IdInPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string }
+                code: { type: string }
+                password: { type: string }
+      responses:
+        '200': { description: OK (тело от контейнера) }
+        '400': { description: 'not_a_telegram_instance', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: 'not_found', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '500': { description: 'instance_not_ready', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '502': { description: 'container_unreachable', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/traffic-report:
+    post:
+      tags: [admin-container]
+      summary: '[internal] Отчёт по трафику'
+      description: |
+        Периодический отчёт от агента nftables-counter: сколько байт
+        прошло в/из IPv6 каждого инстанса. Заливается в коллекцию
+        `traffic` для биллинга.
+      operationId: trafficReport
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security: [AdminToken: []]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      ipv6: { type: string }
+                      bytesIn: { type: integer }
+                      bytesOut: { type: integer }
+                      at: { type: integer, description: 'Unix seconds.' }
+      responses:
+        '200': { description: OK }
+
+# =================================================================
+# Webhooks (исходящие POST → webhookUrl инстанса)
+# =================================================================
+
+webhooks:
+
+  incomingMessageReceived:
+    post:
+      operationId: webhook_incomingMessageReceived
+      security: []
+      summary: Входящее сообщение
+      description: |
+        Срабатывает при получении нового сообщения от контакта/группы.
+        Главное событие для CRM/Bitrix24-интеграций.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: incomingMessageReceived }
+                    idMessage: { type: string }
+                    senderData: { $ref: '#/components/schemas/SenderData' }
+                    messageData: { $ref: '#/components/schemas/MessageData' }
+            example:
+              typeWebhook: incomingMessageReceived
+              instanceData:
+                idInstance: 1101000001
+                wid: "79991234567@c.us"
+                typeInstance: whatsapp
+              timestamp: 1700000000
+              idMessage: "false_79009999999@c.us_3EB0..."
+              senderData:
+                chatId: "79009999999@c.us"
+                sender: "79009999999@c.us"
+                senderName: "Vasya"
+                chatName: "Vasya"
+              messageData:
+                typeMessage: textMessage
+                textMessageData: { textMessage: "Привет!" }
+      responses:
+        '200': { description: Подтверждение получения webhook'а (любой 2xx). }
+
+  outgoingMessageReceived:
+    post:
+      operationId: webhook_outgoingMessageReceived
+      security: []
+      summary: Исходящее сообщение (с телефона)
+      description: |
+        Сообщение, отправленное с мобильного приложения (не через наш
+        API). Полезно для синхронизации в CRM «оператор пишет в WA с
+        телефона».
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: outgoingMessageReceived }
+                    idMessage: { type: string }
+                    senderData: { $ref: '#/components/schemas/SenderData' }
+                    messageData: { $ref: '#/components/schemas/MessageData' }
+      responses:
+        '200': { description: OK }
+
+  outgoingAPIMessageReceived:
+    post:
+      operationId: webhook_outgoingAPIMessageReceived
+      security: []
+      summary: Исходящее сообщение (через наш API)
+      description: |
+        Подтверждение, что сообщение, отправленное через
+        `sendMessage`/`sendFileBy*` и т.д., доставлено внутрь WhatsApp.
+        Отдельный тип нужен Bitrix24 для дедупликации.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: outgoingAPIMessageReceived }
+                    idMessage: { type: string }
+                    senderData: { $ref: '#/components/schemas/SenderData' }
+                    messageData: { $ref: '#/components/schemas/MessageData' }
+      responses:
+        '200': { description: OK }
+
+  outgoingMessageStatus:
+    post:
+      operationId: webhook_outgoingMessageStatus
+      security: []
+      summary: Изменение статуса исходящего сообщения
+      description: |
+        Срабатывает при каждом изменении ack-статуса: `sent` →
+        `delivered` → `read`. `sendByApi:true` — если сообщение
+        отправлено через наш REST.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: outgoingMessageStatus }
+                    idMessage: { type: string }
+                    chatId: { type: string }
+                    status: { $ref: '#/components/schemas/MessageStatus' }
+                    sendByApi: { type: boolean }
+      responses:
+        '200': { description: OK }
+
+  stateInstanceChanged:
+    post:
+      operationId: webhook_stateInstanceChanged
+      security: []
+      summary: Смена состояния инстанса
+      description: |
+        Срабатывает на любом переходе state-машины (`starting →
+        authorized`, `authorized → notAuthorized` после logout и т.д.).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: stateInstanceChanged }
+                    stateInstance: { $ref: '#/components/schemas/StateInstance' }
+      responses:
+        '200': { description: OK }
+
+  statusInstanceChanged:
+    post:
+      operationId: webhook_statusInstanceChanged
+      security: []
+      summary: Смена статуса инстанса (low-level)
+      description: |
+        Более низкоуровневый аналог `stateInstanceChanged`: содержит
+        внутренний `statusInstance` (например, `online`, `offline`,
+        `banned`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: statusInstanceChanged }
+                    statusInstance: { type: string }
+      responses:
+        '200': { description: OK }
+
+  editedMessageReceived:
+    post:
+      operationId: webhook_editedMessageReceived
+      security: []
+      summary: Сообщение отредактировано
+      description: Срабатывает на `message_edit` (входящее или своё).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: editedMessageReceived }
+                    idMessage: { type: string }
+                    senderData: { $ref: '#/components/schemas/SenderData' }
+                    messageData: { $ref: '#/components/schemas/MessageData' }
+      responses:
+        '200': { description: OK }
+
+  deletedMessageReceived:
+    post:
+      operationId: webhook_deletedMessageReceived
+      security: []
+      summary: Сообщение удалено (revoke)
+      description: |
+        Кто-то удалил сообщение «для всех». Содержит `idMessage` и
+        `senderData`, но без оригинального текста (он удалён в самом
+        WhatsApp).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: deletedMessageReceived }
+                    idMessage: { type: string }
+                    senderData: { $ref: '#/components/schemas/SenderData' }
+      responses:
+        '200': { description: OK }
+
+  incomingCall:
+    post:
+      operationId: webhook_incomingCall
+      security: []
+      summary: Входящий звонок
+      description: |
+        Входящий voice/video call. Статусы: `offer` (голос), `offerVideo`
+        (видео).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: incomingCall }
+                    idMessage: { type: string }
+                    from: { type: string }
+                    status: { type: string, enum: [offer, offerVideo] }
+      responses:
+        '200': { description: OK }
+
+  groupJoin:
+    post:
+      operationId: webhook_groupJoin
+      security: []
+      summary: Кто-то вошёл в группу
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: groupJoin }
+      responses:
+        '200': { description: OK }
+
+  groupLeave:
+    post:
+      operationId: webhook_groupLeave
+      security: []
+      summary: Кто-то вышел из группы
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: groupLeave }
+      responses:
+        '200': { description: OK }
+
+  groupUpdate:
+    post:
+      operationId: webhook_groupUpdate
+      security: []
+      summary: Изменены параметры группы
+      description: 'Сменилось имя/описание/иконка группы.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: groupUpdate }
+      responses:
+        '200': { description: OK }
+
+  contactChanged:
+    post:
+      operationId: webhook_contactChanged
+      security: []
+      summary: Контакт сменил номер / статус
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: contactChanged }
+                    oldChatId: { type: string }
+                    newChatId: { type: string }
+                    isContact: { type: boolean }
+      responses:
+        '200': { description: OK }
+
+  pollUpdate:
+    post:
+      operationId: webhook_pollUpdate
+      security: []
+      summary: Голос в опросе
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: pollUpdate }
+                    idMessage: { type: string }
+                    chatId: { type: string }
+                    voter: { type: string }
+                    selectedOptions:
+                      type: array
+                      items: { type: string }
+      responses:
+        '200': { description: OK }
+
+  deviceInfo:
+    post:
+      operationId: webhook_deviceInfo
+      security: []
+      summary: Изменение состояния устройства
+      description: 'Батарея, зарядка — для мониторинга «телефон оператора жив».'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    typeWebhook: { const: deviceInfo }
+                    deviceData:
+                      type: object
+                      properties:
+                        battery: { type: [integer, 'null'] }
+                        plugged: { type: [boolean, 'null'] }
+      responses:
+        '200': { description: OK }
+
+# =================================================================
+# Components
+# =================================================================
+
+components:
+
+  securitySchemes:
+    ApiTokenInUrl:
+      type: apiKey
+      in: query
+      name: token
+      description: |
+        `apiTokenInstance` передаётся в path параметре `{token}` (а не
+        query — Green API так задумано). Сравнение timing-safe.
+        OpenAPI не различает path/query для apiKey — задокументировано
+        как `in: query` для совместимости генераторов клиентов.
+    PartnerTokenInUrl:
+      type: apiKey
+      in: query
+      name: token
+      description: 'Partner token в URL path `/api/partner/{endpoint}/{token}`.'
+    PartnerTokenHeader:
+      type: apiKey
+      in: header
+      name: X-Partner-Token
+    AdminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+      description: 'Shared secret из `admin.shared_token`. Только для контейнеров.'
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: PHPSESSID
+      description: 'Сессионная авторизация админ-UI.'
+
+  parameters:
+    IdInstance:
+      in: path
+      name: idInstance
+      required: true
+      description: '11-значный ID инстанса (формат Green API).'
+      schema:
+        type: string
+        pattern: '^\d{8,12}$'
+        example: "1101000001"
+    ApiToken:
+      in: path
+      name: token
+      required: true
+      description: 'apiTokenInstance — 50 hex chars.'
+      schema:
+        type: string
+        pattern: '^[a-f0-9]{40,64}$'
+    IdInPath:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, pattern: '^\d+$' }
+
+  responses:
+    Unauthorized:
+      description: 'Неверный токен.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: unauthorized }
+    UnknownInstance:
+      description: 'Несуществующий idInstance.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: unknown_instance }
+    NotAuthorized466:
+      description: |
+        Инстанс существует и токен корректный, но клиент WhatsApp/Telegram
+        не в state `authorized` (не прошёл логин или отвалился).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: instanceNotAuthorized }
+
+  schemas:
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, example: 'send_failed' }
+        message: { type: string, example: 'detailed reason' }
+
+    StateInstance:
+      type: string
+      description: |
+        Состояние инстанса. Маппинг внутренних WhatsApp/Telegram
+        состояний → Green API (см. `instance/src/lib/StateMap.js`):
+
+        | WA internal | Green API |
+        |---|---|
+        | CONNECTED | authorized |
+        | OPENING / PAIRING / DEPRECATED_VERSION / TIMEOUT / PROXYBLOCK | starting |
+        | UNPAIRED / UNPAIRED_IDLE / UNLAUNCHED | notAuthorized |
+        | CONFLICT | sleepMode |
+        | TOS_BLOCK / SMB_TOS_BLOCK | blocked |
+        | (any other) | starting |
+      enum: [authorized, notAuthorized, starting, sleepMode, blocked, yellowCard]
+
+    MessageStatus:
+      type: string
+      description: |
+        Статусы доставки. Маппинг ack-кодов whatsapp-web.js:
+        `-1→failed`, `0→pending`, `1→sent`, `2→delivered`, `3→read`,
+        `4→played`. См. `instance/src/lib/StateMap.js`.
+      enum: [failed, pending, sent, delivered, read, played]
+
+    TypeMessage:
+      type: string
+      enum:
+        - textMessage
+        - imageMessage
+        - videoMessage
+        - audioMessage
+        - documentMessage
+        - stickerMessage
+        - locationMessage
+        - contactMessage
+
+    IdMessageResponse:
+      type: object
+      properties:
+        idMessage:
+          type: [string, 'null']
+          description: 'ID отправленного сообщения. `null` — отправка пропущена (см. `error`).'
+        error:
+          type: string
+          description: 'Заполнено только если `idMessage:null`.'
+
+    InstanceData:
+      type: object
+      required: [idInstance, typeInstance]
+      properties:
+        idInstance: { type: integer, example: 1101000001 }
+        wid: { type: [string, 'null'], example: "79991234567@c.us" }
+        typeInstance: { type: string, enum: [whatsapp, telegram] }
+
+    SenderData:
+      type: object
+      required: [chatId, sender]
+      properties:
+        chatId: { type: string, description: 'JID чата (контакт или группа).' }
+        sender: { type: string, description: 'JID реального отправителя (важно для групп).' }
+        senderName: { type: string }
+        chatName: { type: string }
+        senderContactName: { type: string }
+
+    FileMessageData:
+      type: object
+      properties:
+        downloadUrl:
+          type: string
+          format: uri
+          description: 'URL вида `/waInstance{id}/media/{token}/{idMessage}.{ext}`.'
+        caption: { type: string }
+        fileName: { type: string }
+        mimeType: { type: string }
+
+    LocationMessageData:
+      type: object
+      properties:
+        nameLocation: { type: string }
+        address: { type: string }
+        latitude: { type: [number, 'null'] }
+        longitude: { type: [number, 'null'] }
+
+    ContactMessageData:
+      type: object
+      properties:
+        displayName: { type: string }
+        vcard: { type: string }
+
+    MessageData:
+      type: object
+      required: [typeMessage]
+      properties:
+        typeMessage: { $ref: '#/components/schemas/TypeMessage' }
+        textMessageData:
+          type: object
+          properties:
+            textMessage: { type: string }
+        fileMessageData: { $ref: '#/components/schemas/FileMessageData' }
+        imageMessageData: { $ref: '#/components/schemas/FileMessageData' }
+        locationMessageData: { $ref: '#/components/schemas/LocationMessageData' }
+        contactMessageData: { $ref: '#/components/schemas/ContactMessageData' }
+      description: |
+        В зависимости от `typeMessage` заполнено одно из вложенных
+        полей: `textMessageData` для `textMessage`, `fileMessageData` для
+        media-сообщений (`image`/`video`/`audio`/`document`/`sticker`),
+        и т.д.
+
+    WebhookEnvelope:
+      type: object
+      required: [typeWebhook, instanceData, timestamp]
+      properties:
+        typeWebhook: { type: string }
+        instanceData: { $ref: '#/components/schemas/InstanceData' }
+        timestamp: { type: integer, description: 'Unix seconds.' }
+      description: |
+        Базовый каркас всех webhook'ов. Конкретные поля для каждого
+        типа — см. соответствующий раздел в `webhooks:`.
+
+        ### HMAC подпись
+
+        Если у инстанса задан `webhookSecret`, контейнер добавит
+        заголовок `X-Webhook-Signature: sha256=<hex>`, где hex — HMAC-
+        SHA256 от тела запроса с секретом в качестве ключа. Клиент
+        должен проверять её через timing-safe сравнение.
+
+        ### Retry policy
+
+        Webhook доставляется до 16 раз по расписанию 1s → 5s → 30s →
+        2m → 10m → 30m → 1h×4 → 2h×3 → 4h×2 (≈ 24 часа). Успех — любой
+        2xx. Логи доставки доступны в админке.
+
+    ContactItem:
+      type: object
+      properties:
+        id: { type: string, description: JID }
+        name: { type: string }
+        type: { type: string, enum: [user, group] }
+        contactName: { type: string }
+
+    ChatItem:
+      type: object
+      properties:
+        chatId: { type: string }
+        name: { type: string }
+        isGroup: { type: boolean }
+        archived: { type: boolean }
+        unreadCount: { type: integer }
+        lastTimestamp: { type: [integer, 'null'] }
+        lastMessage: { type: string }
+        lastFromMe: { type: boolean }
+        lastStatus: { oneOf: [{ $ref: '#/components/schemas/MessageStatus' }, { type: 'null' }] }
+
+    MessageHistoryItem:
+      type: object
+      properties:
+        idMessage: { type: string }
+        timestamp: { type: [integer, 'null'] }
+        type: { type: string, enum: [incoming, outgoing] }
+        chatId: { type: string }
+        textMessage: { type: string }
+        typeMessage: { $ref: '#/components/schemas/TypeMessage' }
+        statusMessage: { oneOf: [{ $ref: '#/components/schemas/MessageStatus' }, { type: 'null' }] }
+
+    Settings:
+      type: object
+      description: |
+        Все флаги — строки `"yes"`/`"no"` (Green API legacy). Числовые
+        задержки — миллисекунды.
+      properties:
+        wid: { type: [string, 'null'], description: 'Read-only — нынешний JID аккаунта.' }
+        countryInstance: { type: string }
+        typeAccount: { type: string, enum: [whatsapp, telegram] }
+        webhookUrl: { type: string, format: uri }
+        webhookUrlToken: { type: string }
+        delaySendMessagesMilliseconds: { type: integer, default: 1000 }
+        markIncomingMessagesReaded: { type: string, enum: ['yes', 'no'], default: 'no' }
+        markIncomingMessagesReadedOnReply: { type: string, enum: ['yes', 'no'], default: 'no' }
+        sharedSession: { type: string, enum: ['yes', 'no'] }
+        proxyInstance: { type: string }
+        outgoingWebhook: { type: string, enum: ['yes', 'no'], default: 'yes' }
+        outgoingMessageWebhook: { type: string, enum: ['yes', 'no'], default: 'yes' }
+        outgoingAPIMessageWebhook: { type: string, enum: ['yes', 'no'], default: 'yes' }
+        incomingWebhook: { type: string, enum: ['yes', 'no'], default: 'yes' }
+        deviceWebhook: { type: string, enum: ['yes', 'no'], default: 'no' }
+        stateWebhook: { type: string, enum: ['yes', 'no'], default: 'yes' }
+        keepOnlineStatus: { type: string, enum: ['yes', 'no'], default: 'no' }
+        pollMessageWebhook: { type: string, enum: ['yes', 'no'], default: 'yes' }
+        incomingBlockWebhook: { type: string, enum: ['yes', 'no'], default: 'no' }
+        incomingCallWebhook: { type: string, enum: ['yes', 'no'], default: 'no' }
+        editedMessageWebhook: { type: string, enum: ['yes', 'no'], default: 'no' }
+        deletedMessageWebhook: { type: string, enum: ['yes', 'no'], default: 'no' }

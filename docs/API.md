@@ -1,5 +1,14 @@
 # Green API Compatibility Reference
 
+> **Машинно-читаемая спецификация:** [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1).
+> Этот документ — narrative-обзор. Полный, актуальный, валидируемый
+> контракт со всеми полями, схемами ошибок и webhook payload'ами —
+> в openapi.yaml. Используйте его для:
+>
+> - импорта в Postman (`File → Import → openapi.yaml`),
+> - рендера в Swagger UI / Redoc (`npx @redocly/cli preview-docs docs/openapi.yaml`),
+> - генерации клиентских SDK.
+
 100% совместимый набор endpoint'ов с `green-api.com`. Все URL имеют формат:
 
 ```
