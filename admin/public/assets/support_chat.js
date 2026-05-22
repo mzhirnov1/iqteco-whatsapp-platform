@@ -122,6 +122,16 @@
         });
     }
 
+    let pendingUrlId = null;
+    function consumePendingUrlId() {
+        if (!pendingUrlId) return;
+        const exists = allChats.some(c => c.member_id === pendingUrlId);
+        const id = pendingUrlId;
+        pendingUrlId = null;
+        if (exists) openChat(id);
+        else openChat(id); // open anyway — chat endpoint will load it
+    }
+
     async function pollList() {
         if (listInflight) return;
         listInflight = true;
@@ -130,6 +140,7 @@
             allChats = j.chats || [];
             $pollStatus.textContent = `${allChats.length} chats`;
             renderChats();
+            consumePendingUrlId();
         } catch (e) {
             $pollStatus.textContent = 'offline';
             if (e.status === 401) {
@@ -208,6 +219,13 @@
         }
     }
 
+    function syncUrl(memberId) {
+        const u = new URL(window.location.href);
+        if (memberId) u.searchParams.set('id', memberId);
+        else u.searchParams.delete('id');
+        history.replaceState(null, '', u.pathname + (u.search ? u.search : '') + u.hash);
+    }
+
     function openChat(memberId) {
         if (activeMemberId === memberId) return;
         activeMemberId = memberId;
@@ -215,6 +233,7 @@
         $messages.innerHTML = '';
         $empty.hidden = true;
         $chat.hidden = false;
+        syncUrl(memberId);
         renderChats(); // refresh active state in sidebar
         pollChat(true);
         if (chatTimer) clearInterval(chatTimer);
@@ -281,6 +300,17 @@
     });
 
     // Kick things off
+    try {
+        const initId = new URL(window.location.href).searchParams.get('id');
+        if (initId) pendingUrlId = initId;
+    } catch (_) {}
     pollList();
     listTimer = setInterval(pollList, POLL_LIST_MS);
+
+    window.addEventListener('popstate', () => {
+        try {
+            const id = new URL(window.location.href).searchParams.get('id');
+            if (id && id !== activeMemberId) openChat(id);
+        } catch (_) {}
+    });
 })();
