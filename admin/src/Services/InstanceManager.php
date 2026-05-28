@@ -21,14 +21,18 @@ final class InstanceManager
      * Partner-facing factory: tries InstancePool first (instant ~2s QR),
      * falls back to full create() if pool is empty (15-30s).
      * Returns same shape as create(): {idInstance, apiToken, ipv6, containerId}.
+     *
+     * Only WhatsApp is pool-backed. Telegram always takes the full path:
+     * tg-instance containers carry user-specific TG_PHONE / auth method
+     * env that the warm-pool would not know in advance.
      */
     public function createForOwner(array $params): array
     {
-        // Avoid claiming a pool slot for pool itself
+        $type = in_array($params['type'] ?? null, ['whatsapp', 'telegram'], true) ? $params['type'] : 'whatsapp';
         $ownerId = (string)($params['ownerId'] ?? '');
-        if ($ownerId !== InstancePool::OWNER_TAG) {
+        if ($type === 'whatsapp' && $ownerId !== InstancePool::OWNER_TAG) {
             $pool = new InstancePool($this->config, $this->logger, $this);
-            $claimed = $pool->claim($ownerId, (string)($params['webhookUrl'] ?? ''));
+            $claimed = $pool->claim($ownerId, (string)($params['webhookUrl'] ?? ''), $type);
             if ($claimed) {
                 $inst = MongoClient::db($this->config)->selectCollection('instances')
                     ->findOne(['idInstance' => $claimed['idInstance']]);
@@ -41,7 +45,7 @@ final class InstanceManager
                 ];
             }
         }
-        // Fallback — full provisioning
+        // Fallback — full provisioning (always taken for Telegram)
         return $this->create($params) + ['fromPool' => false];
     }
 

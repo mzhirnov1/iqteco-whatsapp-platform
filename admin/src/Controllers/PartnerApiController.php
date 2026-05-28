@@ -21,8 +21,10 @@ use Iqteco\WaAdmin\Services\PodmanRunner;
  * token goes in the URL path. Header X-Partner-Token also accepted.
  *
  * Contract:
- *   POST /api/partner/createInstance/{token}        body: { name?, webhookUrl? }
- *        → { idInstance, apiTokenInstance, id, api_token, apiUrl }
+ *   POST /api/partner/createInstance/{token}        body: { name?, webhookUrl?, type?, tgPhoneNumber? }
+ *        → { idInstance, apiTokenInstance, id, api_token, apiUrl, type }
+ *        type ∈ {"whatsapp" (default), "telegram"}. For telegram tgPhoneNumber
+ *        is optional (used by tg_phone_code auth method, otherwise QR).
  *   POST /api/partner/deleteInstanceAccount/{token} body: { idInstance }
  *        → { deleteInstanceAccount: 1 }
  *   GET  /api/partner/getInstances/{token}
@@ -76,12 +78,24 @@ final class PartnerApiController
         $body = $this->readJson();
         $name = (string)($body['name'] ?? '');
         $webhookUrl = (string)($body['webhookUrl'] ?? '');
+        $tgPhoneNumber = (string)($body['tgPhoneNumber'] ?? '');
+
+        // Explicit body.type wins; otherwise infer from name suffix
+        // (clients like iqsmm.com tag channels as "<userId>:telegram"
+        // or "<userId>:whatsapp" without passing type separately).
+        $type = in_array($body['type'] ?? null, ['whatsapp', 'telegram'], true)
+            ? $body['type']
+            : (preg_match('/:(telegram|whatsapp)$/i', $name, $m) ? strtolower($m[1]) : 'whatsapp');
 
         try {
             $r = $this->manager()->createForOwner([
-                'authMethod' => 'qr',
+                'type' => $type,
+                'authMethod' => $type === 'telegram'
+                    ? ($tgPhoneNumber !== '' ? 'tg_phone_code' : 'tg_qr')
+                    : 'qr',
                 'webhookUrl' => $webhookUrl,
                 'ownerId' => $name !== '' ? $name : ('partner-' . bin2hex(random_bytes(4))),
+                'tgPhoneNumber' => $tgPhoneNumber,
             ]);
             $this->respond(200, [
                 'id' => $r['idInstance'],
@@ -89,6 +103,7 @@ final class PartnerApiController
                 'apiUrl' => 'https://api.wa.iqteco.com',
                 'idInstance' => $r['idInstance'],            // alias for clients that expect this name
                 'apiTokenInstance' => $r['apiToken'],
+                'type' => $type,
             ]);
         } catch (\Throwable $e) {
             $this->respond(500, ['error' => 'create_failed', 'message' => $e->getMessage()]);

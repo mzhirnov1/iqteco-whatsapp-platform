@@ -71,18 +71,27 @@ final class InstancePool
     /**
      * Atomically claim one warm instance. Returns null if pool is empty.
      * Updates ownerId/webhookUrl/createdAt to the real owner.
+     *
+     * $type filters the warm slot: a 'telegram' claim must not be served
+     * a WhatsApp container (different image, different QR format).
+     * Docs predating the type column (created before the 2026-05-22
+     * Telegram refactor) match the whatsapp filter via {$ne:'telegram'}.
      */
-    public function claim(string $ownerId, string $webhookUrl): ?array
+    public function claim(string $ownerId, string $webhookUrl, string $type = 'whatsapp'): ?array
     {
         $coll = MongoClient::db($this->config)->selectCollection('instances');
         $now = new UTCDateTime();
+
+        $typeFilter = $type === 'telegram'
+            ? ['type' => 'telegram']
+            : ['type' => ['$ne' => 'telegram']];  // whatsapp or legacy untyped
 
         $result = $coll->findOneAndUpdate(
             [
                 'ownerId' => self::OWNER_TAG,
                 'state' => ['$in' => ['auth_needed', 'starting', 'notAuthorized']],
                 'lastQr' => ['$ne' => null],  // only claim instances that already have a QR ready
-            ],
+            ] + $typeFilter,
             [
                 '$set' => [
                     'ownerId' => $ownerId,

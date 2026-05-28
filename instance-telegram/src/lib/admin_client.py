@@ -13,8 +13,8 @@ class AdminClient:
         self.log = logger or logging.getLogger("admin-client")
 
     async def _req(self, method: str, path: str, json: Optional[dict] = None) -> Optional[dict]:
-        url = f"{self.base_url}{path}"
-        headers = {"Authorization": f"Bearer {self.token}"}
+        url = f"{self.base_url}/api{path}"
+        headers = {"X-Admin-Token": self.token}
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.request(method, url, headers=headers, json=json)
