@@ -46,7 +46,7 @@ final class InstanceController
         (new AuthService($this->config))->requireAuth();
         Csrf::requireValid();
 
-        $type = in_array($_POST['type'] ?? 'whatsapp', ['whatsapp', 'telegram'], true) ? $_POST['type'] : 'whatsapp';
+        $type = in_array($_POST['type'] ?? null, ['whatsapp', 'telegram'], true) ? $_POST['type'] : 'whatsapp';
         $authMethod = $type === 'telegram'
             ? ($_POST['tg_auth_method'] ?? 'tg_qr')
             : ($_POST['auth_method'] ?? 'qr');

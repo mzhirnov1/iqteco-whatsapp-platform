@@ -53,10 +53,10 @@ final class InstanceManager
     {
         $ownerId = (string)($params['ownerId'] ?? '');
         $webhookUrl = (string)($params['webhookUrl'] ?? $this->config['webhook']['default_url']);
-        $type = in_array($params['type'] ?? 'whatsapp', ['whatsapp', 'telegram'], true) ? $params['type'] : 'whatsapp';
+        $type = in_array($params['type'] ?? null, ['whatsapp', 'telegram'], true) ? $params['type'] : 'whatsapp';
         $authMethod = $type === 'telegram'
-            ? (in_array($params['authMethod'] ?? 'tg_qr', ['tg_qr', 'tg_phone_code'], true) ? $params['authMethod'] : 'tg_qr')
-            : (in_array($params['authMethod'] ?? 'qr', ['qr', 'pairing_code'], true) ? $params['authMethod'] : 'qr');
+            ? (in_array($params['authMethod'] ?? null, ['tg_qr', 'tg_phone_code'], true) ? $params['authMethod'] : 'tg_qr')
+            : (in_array($params['authMethod'] ?? null, ['qr', 'pairing_code'], true) ? $params['authMethod'] : 'qr');
         $tgPhoneNumber = $type === 'telegram' ? (string)($params['tgPhoneNumber'] ?? '') : null;
 
         $idInstance = $this->nextIdInstance();

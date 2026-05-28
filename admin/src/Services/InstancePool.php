@@ -53,6 +53,7 @@ final class InstancePool
         for ($i = 0; $i < $deficit; $i++) {
             try {
                 $r = $this->manager->create([
+                    'type' => 'whatsapp',
                     'authMethod' => 'qr',
                     'webhookUrl' => '',
                     'ownerId' => self::OWNER_TAG,
