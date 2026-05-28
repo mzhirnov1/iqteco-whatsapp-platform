@@ -110,6 +110,41 @@ final class PartnerApiController
         }
     }
 
+    /**
+     * GET /api/partner/qrPoll/{token}/{id}
+     * Returns the current QR (or null) for the instance — used by partner
+     * frontends polling for a fresh QR after createInstance. Format mirrors
+     * the admin-side qrPoll so the same client code works for both.
+     */
+    public function qrPoll(array $params): void
+    {
+        if (!$this->authenticate($params)) return;
+        $idInstance = (string)($params['id'] ?? '');
+        if ($idInstance === '') {
+            $this->respond(400, ['error' => 'idInstance required']);
+            return;
+        }
+        $instance = MongoClient::db($this->config)->selectCollection('instances')->findOne(
+            ['idInstance' => $idInstance],
+            ['projection' => [
+                'lastQr' => 1, 'lastQrAt' => 1, 'qrKind' => 1,
+                'qrExpiresAt' => 1, 'state' => 1, 'type' => 1,
+            ]]
+        );
+        if (!$instance) {
+            $this->respond(404, ['error' => 'not_found']);
+            return;
+        }
+        $this->respond(200, [
+            'qr' => $instance['lastQr'] ?? null,
+            'kind' => $instance['qrKind'] ?? 'qr',
+            'type' => $instance['type'] ?? 'whatsapp',
+            'state' => $instance['state'] ?? null,
+            'qrAt' => isset($instance['lastQrAt']) ? $instance['lastQrAt']->toDateTime()->getTimestamp() : null,
+            'expiresAt' => isset($instance['qrExpiresAt']) ? $instance['qrExpiresAt']->toDateTime()->getTimestamp() : null,
+        ]);
+    }
+
     public function deleteInstance(array $params): void
     {
         if (!$this->authenticate($params)) return;
