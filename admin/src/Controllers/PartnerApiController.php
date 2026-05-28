@@ -145,6 +145,84 @@ final class PartnerApiController
         ]);
     }
 
+    /**
+     * Returns the current state of the instance plus optional phoneNumber.
+     * Matches the field names our consumers expect ({@see VirAlspy/WaPlatformService}).
+     *
+     * Previously read `instances.state` only — which is set on `on_ready` /
+     * `on_disconnect` callbacks but doesn't update after a container loses
+     * Telegram auth (session revoked, image rebuild, GridFS-session out of
+     * sync with Telethon). Result: consumers saw "authorized" while the
+     * actual container had `notAuthorized`.
+     *
+     * Now we also poll the container's own Green-API `getStateInstance`
+     * (short 3s timeout) and treat its answer as authoritative. If the
+     * container is unreachable we fall back to the cached DB state so the
+     * endpoint stays available during upstream blips. Whenever the live
+     * state differs from `instances.state` we write it back so other
+     * code paths (qrPoll, getInstances, the admin UI) catch up too.
+     */
+    public function instanceState(array $params): void
+    {
+        if (!$this->authenticate($params)) return;
+        $idInstance = (string)($params['id'] ?? '');
+        if ($idInstance === '') {
+            $this->respond(400, ['error' => 'idInstance required']);
+            return;
+        }
+        $instance = MongoClient::db($this->config)->selectCollection('instances')->findOne(
+            ['idInstance' => $idInstance],
+            ['projection' => [
+                'state' => 1, 'type' => 1, 'phoneNumber' => 1, 'ownerId' => 1,
+                'ipv6' => 1, 'apiToken' => 1,
+            ]]
+        );
+        if (!$instance) {
+            $this->respond(404, ['error' => 'not_found']);
+            return;
+        }
+        $cachedState = $instance['state'] ?? null;
+        $state = $cachedState;
+        if (!empty($instance['ipv6']) && !empty($instance['apiToken'])) {
+            $url = sprintf(
+                'http://[%s]:8080/waInstance%s/getStateInstance/%s',
+                $instance['ipv6'],
+                $idInstance,
+                $instance['apiToken']
+            );
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 3,
+                CURLOPT_CONNECTTIMEOUT => 2,
+            ]);
+            $raw = curl_exec($ch);
+            $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($raw !== false && $http === 200) {
+                $decoded = json_decode((string)$raw, true);
+                $live = is_array($decoded) ? ($decoded['stateInstance'] ?? null) : null;
+                if (is_string($live) && $live !== '') {
+                    $state = $live;
+                    if ($live !== $cachedState) {
+                        MongoClient::db($this->config)->selectCollection('instances')->updateOne(
+                            ['idInstance' => $idInstance],
+                            ['$set' => ['state' => $live]]
+                        );
+                    }
+                }
+            }
+        }
+        $this->respond(200, [
+            'idInstance' => $idInstance,
+            'state' => $state,
+            'stateInstance' => $state,
+            'type' => $instance['type'] ?? 'whatsapp',
+            'phoneNumber' => $instance['phoneNumber'] ?? null,
+            'name' => $instance['ownerId'] ?? null,
+        ]);
+    }
+
     public function deleteInstance(array $params): void
     {
         if (!$this->authenticate($params)) return;
