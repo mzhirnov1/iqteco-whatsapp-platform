@@ -2,6 +2,7 @@
 
 module.exports = (ctx) => async () => {
   ctx.state.authorized = true;
+  if (ctx.qrWatch) ctx.qrWatch.streak = 0; // successful pairing -> reset QR-loop watchdog
   ctx.qrCache.qr = null;
   ctx.qrCache.pngBase64 = null;
   ctx.qrCache.expiresAt = 0;

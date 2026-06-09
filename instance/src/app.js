@@ -2,6 +2,8 @@
 
 const express = require('express');
 const { MongoClient } = require('mongodb');
+const fs = require('fs');
+const path = require('path');
 
 const config = require('./config');
 const { createLogger } = require('./lib/Logger');
@@ -102,6 +104,7 @@ async function main() {
   });
   const qrCache = { qr: null, pngBase64: null, expiresAt: 0 };
   const codeCache = { code: null, expiresAt: 0 };
+  const qrWatch = { streak: 0 }; // consecutive QRs without ready -> dead-session watchdog
   const outgoingApiIds = new Set();
 
   // 6. WhatsApp client
@@ -111,9 +114,17 @@ async function main() {
     config, logger, db, adminClient, adminConfig, webhookSender, mapper,
     mediaStore, messageStore,
     qrCache, codeCache, outgoingApiIds, state,
+    store, qrWatch,
     get client() { return client; },
-    rebootClient,
+    rebootClient, resetSession,
   };
+
+  // Pre-clean orphaned backup-temp from an interrupted storeRemoteSession
+  // (root of the EEXIST in RemoteAuth.compressSession). RemoteAuth-<id> is kept.
+  try {
+    await fs.promises.rm(path.resolve('./.wwebjs_auth/wwebjs_temp_session_' + config.idInstance),
+      { recursive: true, force: true, maxRetries: 4 });
+  } catch { /* ignore */ }
 
   attachEvents();
   await client.initialize().catch((err) => logger.error({ err: err.message }, 'client.initialize failed'));
@@ -155,7 +166,7 @@ async function main() {
 
   // 9. Heartbeat
   const heartbeat = new Heartbeat({
-    client,
+    getClient: () => client,
     adminClient,
     logger,
     onConflict: () => rebootClient('heartbeat_conflict'),
@@ -202,6 +213,34 @@ async function main() {
     client.on('battery_changed', onBatteryChanged(ctx));
     client.on('loading_screen', (percent, message) => logger.info({ percent, message }, 'loading_screen'));
     client.on('remote_session_saved', () => logger.info('remote_session_saved'));
+  }
+
+  // Self-heal a dead session: stop the client (clears RemoteAuth backupSync),
+  // delete the corrupt GridFS blob + local profile, bring up a clean client (fresh QR).
+  let _lastResetAt = 0;
+  async function cleanLocalSession() {
+    const base = path.resolve('./.wwebjs_auth');
+    for (const d of ['RemoteAuth-' + config.idInstance, 'wwebjs_temp_session_' + config.idInstance]) {
+      try { await fs.promises.rm(path.join(base, d), { recursive: true, force: true, maxRetries: 4 }); }
+      catch (err) { logger.warn({ err: err.message, dir: d }, 'cleanLocalSession: rm failed'); }
+    }
+  }
+  async function resetSession(reason) {
+    const now = Date.now();
+    if (now - _lastResetAt < 120000) { logger.warn({ reason }, 'resetSession skipped (debounced)'); return; }
+    _lastResetAt = now;
+    logger.warn({ reason }, 'resetSession: clearing dead session');
+    try { await client.destroy(); } catch (err) { logger.warn({ err: err.message }, 'resetSession: destroy failed'); }
+    try { await store.delete({ session: 'RemoteAuth-' + config.idInstance }); }
+    catch (err) { logger.warn({ err: err.message }, 'resetSession: store.delete failed'); }
+    await cleanLocalSession();
+    try { await adminClient.stateChange({ from: state.lastState, to: 'notAuthorized', reason: 'needs_relink:' + reason }); } catch { /* ignore */ }
+    state.lastState = 'notAuthorized';
+    state.authorized = false;
+    qrWatch.streak = 0;
+    client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs });
+    attachEvents();
+    try { await client.initialize(); } catch (err) { logger.error({ err: err.message }, 'resetSession: re-initialize failed'); }
   }
 
   async function rebootClient(reason) {

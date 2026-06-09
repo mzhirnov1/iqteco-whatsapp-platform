@@ -5,8 +5,14 @@ const { mapWAStateToGreen } = require('./StateMap');
 const STALE_STATES = new Set(['CONFLICT', 'TIMEOUT', 'UNLAUNCHED']);
 
 class Heartbeat {
-  constructor({ client, adminClient, logger, intervalMs = 30000, onConflict }) {
-    this.client = client;
+  constructor({ getClient, client, adminClient, logger, intervalMs = 30000, onConflict }) {
+    if (typeof getClient === 'function') {
+      this.getClient = getClient;
+    } else if (client) {
+      this.getClient = () => client;
+    } else {
+      throw new Error('Heartbeat: getClient or client required');
+    }
     this.adminClient = adminClient;
     this.logger = logger || console;
     this.intervalMs = intervalMs;
@@ -31,7 +37,11 @@ class Heartbeat {
     if (this._busy) return;
     this._busy = true;
     try {
-      const state = await this.client.getState().catch(() => null);
+      const client = this.getClient();
+      const state = await client.getState().catch((err) => {
+        this.logger.warn({ err: err?.message }, 'Heartbeat: getState threw');
+        return null;
+      });
       const greenState = mapWAStateToGreen(state);
 
       await this.adminClient.heartbeat({ state: greenState, lastEventAt: Math.floor(Date.now() / 1000) })

@@ -10,4 +10,9 @@ module.exports = (ctx) => async (msg) => {
   }
   ctx.state.lastState = 'notAuthorized';
   await ctx.webhookSender.enqueue('stateInstanceChanged', ctx.mapper.toStateInstanceChanged('UNPAIRED'));
+
+  // auth_failure means the stored session is invalid -> clear it and bring up a fresh QR.
+  if (typeof ctx.resetSession === 'function') {
+    await ctx.resetSession('auth_failure');
+  }
 };

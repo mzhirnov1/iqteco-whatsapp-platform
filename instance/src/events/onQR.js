@@ -20,5 +20,15 @@ module.exports = (ctx) => async (qr) => {
   } catch (err) {
     ctx.logger.warn({ err: err.message }, 'onQR: failed to notify admin');
   }
+  // QR-loop watchdog: repeated QRs while a session blob still EXISTS means restore
+  // keeps loading a DEAD session in a loop. Reset it once for a clean re-pair
+  // (instead of looping for days). After reset the blob is gone, so this won't refire.
+  ctx.qrWatch.streak = (ctx.qrWatch.streak || 0) + 1;
+  if (ctx.qrWatch.streak >= 4 && typeof ctx.resetSession === 'function' && ctx.store) {
+    ctx.qrWatch.streak = 0;
+    ctx.store.sessionExists({ session: 'RemoteAuth-' + ctx.config.idInstance })
+      .then((exists) => { if (exists) return ctx.resetSession('qr_loop'); })
+      .catch(() => {});
+  }
   ctx.logger.info('onQR: new QR received');
 };
