@@ -29,13 +29,22 @@ def register(app: FastAPI, rt: Runtime) -> None:
             contact = InputPhoneContact(client_id=0, phone=phone, first_name="probe", last_name="")
             res = await r.client(ImportContactsRequest([contact]))
             exists = bool(res.users)
-            # Clean up — don't pollute address book
+            chat_id_out = ""
             if res.users:
+                # Resolved Telegram user -> expose chatId so a cold first-touch
+                # send can target it. The session keeps the access_hash cached
+                # even after we delete the contact, so a later sendMessage(chatId)
+                # still resolves the entity.
+                try:
+                    chat_id_out = tg_id_to_chat_id(res.users[0].id)
+                except Exception:
+                    chat_id_out = ""
+                # Clean up - don't pollute address book
                 try:
                     await r.client(DeleteContactsRequest(res.users))
                 except Exception:
                     pass
-            return {"existsWhatsapp": exists}
+            return {"existsWhatsapp": exists, "chatId": chat_id_out}
         except Exception as e:
             log.warning("checkWhatsapp failed phone=%s err=%s", phone, e)
             return {"existsWhatsapp": False}
