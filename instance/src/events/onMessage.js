@@ -14,6 +14,28 @@ function extFromMime(mime) {
   return mimeTypes.extension(base) || null;
 }
 
+// WhatsApp LID privacy chats (`{lid}@lid`) carry no phone number anywhere in
+// the payload, but the WA Web session itself can map lid → pn (the phone app
+// shows the real number). Resolve once per chat — puppeteer evaluate isn't
+// free — and cache for the container's lifetime.
+const lidPnCache = new Map();
+
+async function resolveLidPn(ctx, lidJid) {
+  if (lidPnCache.has(lidJid)) return lidPnCache.get(lidJid);
+  try {
+    const rows = await ctx.client.getContactLidAndPhone([lidJid]);
+    const pn = rows?.[0]?.pn || '';
+    if (pn) {
+      if (lidPnCache.size > 5000) lidPnCache.clear();
+      lidPnCache.set(lidJid, pn);
+    }
+    return pn;
+  } catch (err) {
+    ctx.logger.warn({ err: err.message, lidJid }, 'onMessage: lid->pn resolve failed');
+    return '';
+  }
+}
+
 module.exports = (ctx) => async (msg) => {
   if (msg.fromMe) return;
   try {
@@ -49,6 +71,11 @@ module.exports = (ctx) => async (msg) => {
     }
 
     const payload = ctx.mapper.toIncomingMessageReceived(msg);
+
+    if (typeof msg.from === 'string' && msg.from.endsWith('@lid')) {
+      const pn = await resolveLidPn(ctx, msg.from);
+      if (pn) payload.senderData.senderPn = pn;
+    }
 
     if (ctx.messageStore) {
       ctx.messageStore.put({

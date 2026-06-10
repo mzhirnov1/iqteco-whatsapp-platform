@@ -24,6 +24,7 @@ const markChatAsRead = require('./markChatAsRead');
 const checkWhatsapp = require('./checkWhatsapp');
 const getContacts = require('./getContacts');
 const getContactInfo = require('./getContactInfo');
+const getContactLidAndPhone = require('./getContactLidAndPhone');
 const getAvatar = require('./getAvatar');
 const getChats = require('./getChats');
 const getChatHistory = require('./getChatHistory');
@@ -74,6 +75,7 @@ function mountRoutes(app, ctx) {
   app.get(`${prefix}/getContacts/:token`, auth, getContacts(ctx));
   app.get(`${prefix}/getChats/:token`, auth, getChats(ctx));
   app.post(`${prefix}/getContactInfo/:token`, auth, getContactInfo(ctx));
+  app.post(`${prefix}/getContactLidAndPhone/:token`, auth, getContactLidAndPhone(ctx));
   app.get(`${prefix}/getAvatar/:token`, auth, getAvatar(ctx));
   app.post(`${prefix}/getAvatar/:token`, auth, getAvatar(ctx));
   app.post(`${prefix}/getChatHistory/:token`, auth, getChatHistory(ctx));
