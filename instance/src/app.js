@@ -116,7 +116,7 @@ async function main() {
     qrCache, codeCache, outgoingApiIds, state,
     store, qrWatch,
     get client() { return client; },
-    rebootClient, resetSession,
+    rebootClient, resetSession, localSessionExists,
   };
 
   // Pre-clean orphaned backup-temp from an interrupted storeRemoteSession
@@ -218,11 +218,31 @@ async function main() {
   // Self-heal a dead session: stop the client (clears RemoteAuth backupSync),
   // delete the corrupt GridFS blob + local profile, bring up a clean client (fresh QR).
   let _lastResetAt = 0;
-  async function cleanLocalSession() {
+  function sessionDirs() {
     const base = path.resolve('./.wwebjs_auth');
-    for (const d of ['RemoteAuth-' + config.idInstance, 'wwebjs_temp_session_' + config.idInstance]) {
-      try { await fs.promises.rm(path.join(base, d), { recursive: true, force: true, maxRetries: 4 }); }
-      catch (err) { logger.warn({ err: err.message, dir: d }, 'cleanLocalSession: rm failed'); }
+    return ['RemoteAuth-' + config.idInstance, 'wwebjs_temp_session_' + config.idInstance]
+      .map((d) => path.join(base, d));
+  }
+  // True if ANY local session artifact survives. The onQR watchdog uses this so a
+  // local-only corruption (blob already deleted, but rm failed under file locks)
+  // still self-heals instead of QR-looping forever.
+  async function localSessionExists() {
+    for (const full of sessionDirs()) {
+      try { await fs.promises.access(full); return true; } catch { /* gone */ }
+    }
+    return false;
+  }
+  // Remove local session dirs, verifying each is actually gone. leveldb locks held
+  // by a not-yet-dead Chromium make the first rm fail (ENOTEMPTY/EBUSY); retry a few
+  // times so a half-removed (corrupt) profile never survives the reset.
+  async function cleanLocalSession() {
+    for (const full of sessionDirs()) {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try { await fs.promises.rm(full, { recursive: true, force: true, maxRetries: 4 }); }
+        catch (err) { logger.warn({ err: err.message, dir: full, attempt }, 'cleanLocalSession: rm failed'); }
+        try { await fs.promises.access(full); } catch { break; } // confirmed gone
+        await new Promise((r) => setTimeout(r, 1500)); // give the OS time to release locks
+      }
     }
   }
   async function resetSession(reason) {
@@ -231,6 +251,13 @@ async function main() {
     _lastResetAt = now;
     logger.warn({ reason }, 'resetSession: clearing dead session');
     try { await client.destroy(); } catch (err) { logger.warn({ err: err.message }, 'resetSession: destroy failed'); }
+    // destroy() can leave the Chromium process alive ('Target closed'), holding leveldb
+    // file locks so cleanLocalSession's rm fails and the corrupt profile survives. Force-kill it.
+    try {
+      const proc = client && client.pupBrowser && typeof client.pupBrowser.process === 'function'
+        ? client.pupBrowser.process() : null;
+      if (proc && !proc.killed) { proc.kill('SIGKILL'); logger.warn('resetSession: SIGKILL stray browser'); }
+    } catch (err) { logger.warn({ err: err.message }, 'resetSession: browser kill failed'); }
     try { await store.delete({ session: 'RemoteAuth-' + config.idInstance }); }
     catch (err) { logger.warn({ err: err.message }, 'resetSession: store.delete failed'); }
     await cleanLocalSession();

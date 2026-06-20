@@ -26,9 +26,16 @@ module.exports = (ctx) => async (qr) => {
   ctx.qrWatch.streak = (ctx.qrWatch.streak || 0) + 1;
   if (ctx.qrWatch.streak >= 4 && typeof ctx.resetSession === 'function' && ctx.store) {
     ctx.qrWatch.streak = 0;
-    ctx.store.sessionExists({ session: 'RemoteAuth-' + ctx.config.idInstance })
-      .then((exists) => { if (exists) return ctx.resetSession('qr_loop'); })
-      .catch(() => {});
+    // Reset if a session artifact still exists in EITHER place: the GridFS blob OR a
+    // local session dir. Checking only the blob meant a partial reset (blob deleted,
+    // local rm failed under file locks) disarmed the watchdog and the client QR-looped
+    // forever on the surviving corrupt local profile.
+    Promise.all([
+      ctx.store.sessionExists({ session: 'RemoteAuth-' + ctx.config.idInstance }).catch(() => false),
+      typeof ctx.localSessionExists === 'function' ? ctx.localSessionExists().catch(() => false) : Promise.resolve(false),
+    ]).then(([blobExists, localExists]) => {
+      if (blobExists || localExists) return ctx.resetSession('qr_loop');
+    }).catch(() => {});
   }
   ctx.logger.info('onQR: new QR received');
 };
