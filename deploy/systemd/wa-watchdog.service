@@ -1,0 +1,14 @@
+[Unit]
+Description=wa/tg instance container health watchdog (restart hung-but-running instances)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root: needs `podman ps/inspect/restart` on the rootful instance
+# containers. ExecStart lives in a root-owned path (NOT the www-data app dir)
+# so the privileged service cannot be hijacked by the web user.
+ExecStart=/usr/local/sbin/wa-watchdog.sh
+# Bound a run so a hung probe/restart can never block future ticks.
+TimeoutStartSec=300
+Nice=10
