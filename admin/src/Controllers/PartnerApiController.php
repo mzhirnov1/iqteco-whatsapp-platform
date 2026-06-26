@@ -36,20 +36,54 @@ final class PartnerApiController
 
     private function authenticate(array $params): bool
     {
-        $expected = (string)(\wa_env('PARTNER_TOKEN') ?? '');
-        if ($expected === '') {
-            $this->respond(500, ['error' => 'partner_token_not_configured']);
-            return false;
-        }
         $provided = (string)($params['token']
             ?? $_SERVER['HTTP_X_PARTNER_TOKEN']
             ?? $_GET['partnerToken']
             ?? '');
-        if (!hash_equals($expected, $provided)) {
+        if ($provided === '') {
             $this->respond(401, ['error' => 'unauthorized']);
             return false;
         }
-        return true;
+
+        // 1) Backward-compatible single token from .env (PARTNER_TOKEN).
+        $envToken = (string)(\wa_env('PARTNER_TOKEN') ?? '');
+        if ($envToken !== '' && hash_equals($envToken, $provided)) {
+            return true;
+        }
+
+        // 2) DB-backed multi-token: collection partner_tokens (sha256 hashes,
+        //    non-revoked). Lets us issue/rotate several partner tokens without
+        //    touching .env. Managed via scripts/wa-partner-token.php.
+        if ($this->partnerTokenValid($provided)) {
+            return true;
+        }
+
+        $this->respond(401, ['error' => 'unauthorized']);
+        return false;
+    }
+
+    /**
+     * Validate a partner token against the partner_tokens collection.
+     * Tokens are stored as sha256 hashes so the DB never holds raw secrets.
+     * Bumps lastUsedAt on a hit. Any DB error fails closed (returns false).
+     */
+    private function partnerTokenValid(string $provided): bool
+    {
+        try {
+            $hash = hash('sha256', $provided);
+            $col = MongoClient::db($this->config)->selectCollection('partner_tokens');
+            $doc = $col->findOne(['tokenHash' => $hash, 'revoked' => ['$ne' => true]]);
+            if ($doc === null) {
+                return false;
+            }
+            $col->updateOne(
+                ['tokenHash' => $hash],
+                ['$set' => ['lastUsedAt' => new \MongoDB\BSON\UTCDateTime()]]
+            );
+            return true;
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     private function readJson(): array
@@ -103,6 +137,7 @@ final class PartnerApiController
                 'apiUrl' => 'https://api.wa.iqteco.com',
                 'idInstance' => $r['idInstance'],            // alias for clients that expect this name
                 'apiTokenInstance' => $r['apiToken'],
+                'webhookSecret' => $r['webhookSecret'] ?? null, // нужен потребителю для проверки HMAC входящих
                 'type' => $type,
             ]);
         } catch (\Throwable $e) {
