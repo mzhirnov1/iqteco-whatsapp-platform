@@ -23,7 +23,22 @@ async def _resolve_entity(rt: Runtime, chat_id: str):
     try:
         return await rt.client.get_entity(tg_id)
     except Exception as e:
-        log.warning("get_entity %s failed: %s", chat_id, e)
+        log.warning("get_entity %s failed: %s — refreshing dialog cache", chat_id, e)
+    # Свежая сессия (после реавторизации) не знает entity старых диалогов:
+    # Telethon-у нужен access_hash из кэша сессии. get_dialogs() наполняет кэш
+    # всеми текущими диалогами — после этого повторный get_entity находит
+    # собеседника. Троттлинг 60 сек, чтобы промахи не флудили запросами.
+    now = time.time()
+    if now - getattr(rt, "_dialogs_refreshed_at", 0) > 60:
+        try:
+            await rt.client.get_dialogs(limit=500)
+            rt._dialogs_refreshed_at = now
+        except Exception as e:
+            log.warning("get_dialogs refresh failed: %s", e)
+    try:
+        return await rt.client.get_entity(tg_id)
+    except Exception as e:
+        log.warning("get_entity %s failed after refresh: %s", chat_id, e)
         raise HTTPException(status_code=400, detail={"error": "entity_not_found", "chatId": chat_id})
 
 
