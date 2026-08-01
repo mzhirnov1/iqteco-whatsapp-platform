@@ -37,6 +37,11 @@ final class InstancePool
      */
     public function keepWarm(): int
     {
+        // Drop pooled slots whose container died (OOM → Exited 137) before they
+        // ever became claimable. Otherwise they keep counting toward $current
+        // below and permanently block replenishment (warm=0, starting=N=target).
+        $this->reapDead();
+
         // Count anything in the pool that is not yet authorized and not deleted.
         // After container spins up the state goes auth_needed → starting → notAuthorized
         // (the latter is the Green-API mapping for "UNPAIRED" — container is alive,
@@ -66,6 +71,55 @@ final class InstancePool
             }
         }
         return $created;
+    }
+
+    /**
+     * Reap pooled instances whose container is gone or exited (typically an
+     * OOM-kill, Exited 137). Such a doc sits in state starting/auth_needed with
+     * lastQr=null forever: never claimable, yet counted as a live slot — which
+     * is exactly what jams keepWarm(). A doc missing its container is given a
+     * 90s grace so we don't race a container that is still being created.
+     * Returns the number reaped.
+     */
+    private function reapDead(): int
+    {
+        $coll = MongoClient::db($this->config)->selectCollection('instances');
+        $now = time();
+        $reaped = 0;
+        $cursor = $coll->find(
+            ['ownerId' => self::OWNER_TAG, 'state' => ['$in' => ['auth_needed', 'starting', 'notAuthorized']]],
+            ['projection' => ['idInstance' => 1, 'containerName' => 1, 'createdAt' => 1]]
+        );
+        foreach ($cursor as $doc) {
+            $id = (string)($doc['idInstance'] ?? '');
+            $cname = (string)($doc['containerName'] ?? ('wa-' . $id));
+            if ($id === '') continue;
+
+            $status = $this->manager->containerStatus($cname);
+            if ($status === 'running') continue;
+
+            // Grace window only for a still-missing container (mid-create race).
+            // An 'exited' container is definitively dead — reap immediately.
+            if ($status === 'missing') {
+                $age = (isset($doc['createdAt']) && $doc['createdAt'] instanceof UTCDateTime)
+                    ? $now - $doc['createdAt']->toDateTime()->getTimestamp()
+                    : PHP_INT_MAX;
+                if ($age < 90) continue;
+            }
+
+            try {
+                $this->manager->delete($id, false);
+                $this->logger->info('InstancePool: reaped dead pool instance', [
+                    'idInstance' => $id, 'status' => $status,
+                ]);
+                $reaped++;
+            } catch (\Throwable $e) {
+                $this->logger->error('InstancePool.reapDead failed', [
+                    'idInstance' => $id, 'err' => $e->getMessage(),
+                ]);
+            }
+        }
+        return $reaped;
     }
 
     /**

@@ -356,6 +356,19 @@ final class InstanceManager
         return $this->executePendingDelete($idInstance, $releaseIpBanned);
     }
 
+    /**
+     * Lightweight liveness probe for a container by name.
+     * Returns 'running' | 'exited' | 'missing'. Used by the pool reaper so a
+     * container that OOM-died (Exited 137) stops counting as a live warm slot.
+     */
+    public function containerStatus(string $containerName): string
+    {
+        if ($containerName === '') return 'missing';
+        $insp = $this->podman->inspect($containerName);
+        if ($insp === null) return 'missing';
+        return !empty($insp['State']['Running']) ? 'running' : 'exited';
+    }
+
     public function findOrFail(string $idInstance): array
     {
         $inst = MongoClient::db($this->config)->selectCollection('instances')->findOne(['idInstance' => $idInstance]);

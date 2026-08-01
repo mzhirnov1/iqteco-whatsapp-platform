@@ -30,8 +30,11 @@ final class PodmanRunner
             '--name', $name,
             '--network', $this->config['podman']['network'],
             '--restart=on-failure:5',
-            '--memory=1g',
-            '--shm-size=1g',
+            // Headroom over the trimmed Chromium footprint (see instance/src/client.js):
+            // 2g ceiling so the QR/login spike no longer trips a cgroup OOM (Exited 137).
+            // shm shrunk to 256m since --disable-dev-shm-usage keeps Chromium off /dev/shm.
+            '--memory=2g',
+            '--shm-size=256m',
             '--security-opt', 'seccomp=unconfined',
             '--label', 'wa-instance=' . substr($name, 3),
         ];

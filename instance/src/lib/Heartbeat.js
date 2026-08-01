@@ -5,7 +5,7 @@ const { mapWAStateToGreen } = require('./StateMap');
 const STALE_STATES = new Set(['CONFLICT', 'TIMEOUT', 'UNLAUNCHED']);
 
 class Heartbeat {
-  constructor({ getClient, client, adminClient, logger, intervalMs = 30000, onConflict }) {
+  constructor({ getClient, client, adminClient, logger, intervalMs = 30000, onConflict, maxStaleReboots = 5 }) {
     if (typeof getClient === 'function') {
       this.getClient = getClient;
     } else if (client) {
@@ -17,9 +17,18 @@ class Heartbeat {
     this.logger = logger || console;
     this.intervalMs = intervalMs;
     this.onConflict = onConflict || (() => {});
+    // Circuit breaker: a logged-out / corrupt session is NOT fixable by more
+    // reboots — it needs a manual QR re-scan. Past this many consecutive
+    // stale-state reboots we STOP calling onConflict and just keep
+    // heartbeating state, so the container parks quietly instead of hammering
+    // re-link (which WhatsApp reads as automation and bans for). Mirrors the
+    // external wa-watchdog MAX_PER_HOUR give-up. Resets on any healthy state.
+    this.maxStaleReboots = maxStaleReboots;
     this.timer = null;
     this._busy = false;
     this._consecutiveErrors = 0;
+    this._staleReboots = 0;
+    this._parked = false;
   }
 
   start() {
@@ -55,10 +64,26 @@ class Heartbeat {
           await this.onConflict('state_null');
         }
       } else if (STALE_STATES.has(state)) {
-        this.logger.warn({ state }, 'Heartbeat: stale state, triggering onConflict');
-        await this.onConflict(state);
+        if (this._staleReboots >= this.maxStaleReboots) {
+          // Give up: parked, needs manual QR. Stop churning re-link attempts.
+          if (!this._parked) {
+            this._parked = true;
+            this.logger.error({ state, reboots: this._staleReboots },
+              'Heartbeat: stale after max reboots — PARKED, needs manual QR (reboot churn stopped)');
+          }
+        } else {
+          this._staleReboots++;
+          this.logger.warn({ state, reboot: this._staleReboots },
+            'Heartbeat: stale state, triggering onConflict');
+          await this.onConflict(state);
+        }
       } else {
         this._consecutiveErrors = 0;
+        if (this._staleReboots || this._parked) {
+          this.logger.info({ state }, 'Heartbeat: healthy again — reboot circuit reset');
+        }
+        this._staleReboots = 0;
+        this._parked = false;
       }
     } catch (err) {
       this.logger.error({ err: err.message }, 'Heartbeat: tick error');
