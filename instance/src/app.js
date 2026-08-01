@@ -15,6 +15,7 @@ const AdminClient = require('./lib/AdminClient');
 const WebhookSender = require('./lib/WebhookSender');
 const GreenApiMapper = require('./lib/GreenApiMapper');
 const Heartbeat = require('./lib/Heartbeat');
+const { QrIdleReaper } = require('./lib/QrIdleReaper');
 const { createClient } = require('./client');
 const { mountRoutes } = require('./routes');
 
@@ -108,7 +109,7 @@ async function main() {
   const outgoingApiIds = new Set();
 
   // 6. WhatsApp client
-  let client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs });
+  let client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs, waWebVersion: config.waWebVersion });
 
   const ctx = {
     config, logger, db, adminClient, adminConfig, webhookSender, mapper,
@@ -173,6 +174,26 @@ async function main() {
   });
   heartbeat.start();
 
+  // 9a. QR idle reaper — an unpaired instance must not sit there asking WhatsApp
+  // for a fresh QR every 20s indefinitely. Stopping the container is safe: the
+  // platform starts it again the moment someone asks to see the QR.
+  const qrReaper = new QrIdleReaper({
+    ttlMs: config.qrIdleTtlMs,
+    logger,
+    onExpire: async () => {
+      try {
+        await adminClient.stateChange({
+          from: state.lastState,
+          to: 'stopped',
+          reason: 'qr_idle_timeout',
+        });
+      } catch (err) {
+        logger.warn({ err: err.message }, 'QR idle: could not notify admin');
+      }
+      await shutdown('qr_idle_timeout');
+    },
+  });
+
   // 10. Shutdown
   let shuttingDown = false;
   async function shutdown(signal) {
@@ -180,6 +201,7 @@ async function main() {
     shuttingDown = true;
     logger.info({ signal }, 'shutdown begin');
     heartbeat.stop();
+    qrReaper.stop();
     server.close();
     try { await webhookSender.drain(3000); } catch {}
     try { await webhookSender.stop(); } catch {}
@@ -192,10 +214,12 @@ async function main() {
   process.on('SIGINT', () => shutdown('SIGINT'));
 
   function attachEvents() {
-    client.on('qr', onQR(ctx));
+    const handleQr = onQR(ctx);
+    const handleReady = onReady(ctx);
+    client.on('qr', (qr) => { qrReaper.noteQr(); return handleQr(qr); });
     client.on('code', onCode(ctx));
-    client.on('ready', onReady(ctx));
-    client.on('authenticated', () => logger.info('client authenticated'));
+    client.on('ready', (...args) => { qrReaper.noteScanned(); return handleReady(...args); });
+    client.on('authenticated', () => { qrReaper.noteScanned(); logger.info('client authenticated'); });
     client.on('auth_failure', onAuthFailure(ctx));
     client.on('disconnected', onDisconnected(ctx));
     client.on('message', onMessage(ctx));
@@ -265,7 +289,10 @@ async function main() {
     state.lastState = 'notAuthorized';
     state.authorized = false;
     qrWatch.streak = 0;
-    client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs });
+    // Back to square one: the next QR must start a fresh idle countdown, or a
+    // once-paired instance would keep emitting QRs forever after being unlinked.
+    qrReaper.reset();
+    client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs, waWebVersion: config.waWebVersion });
     attachEvents();
     try { await client.initialize(); } catch (err) { logger.error({ err: err.message }, 'resetSession: re-initialize failed'); }
   }
@@ -277,7 +304,10 @@ async function main() {
     } catch (err) {
       logger.warn({ err: err.message }, 'reboot: destroy failed');
     }
-    client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs });
+    // A reboot that lands back on the QR screen means the session did not
+    // survive; restart the countdown so it cannot idle there indefinitely.
+    qrReaper.reset();
+    client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs, waWebVersion: config.waWebVersion });
     attachEvents();
     try {
       await client.initialize();

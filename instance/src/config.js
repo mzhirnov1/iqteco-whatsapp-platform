@@ -23,6 +23,13 @@ const config = {
   ipv6Addr: optional('IPV6_ADDR', ''),
   logLevel: optional('LOG_LEVEL', 'info'),
   backupIntervalMs: Number(optional('BACKUP_INTERVAL_MS', 60000)),
+  // Stop the container if nobody scans the QR within this window (0 = never stop).
+  // Keeps unpaired instances from asking WhatsApp for a fresh QR every 20s forever.
+  qrIdleTtlMs: Number(optional('QR_IDLE_TTL_MS', 600000)),
+  // Pin the WhatsApp Web build instead of always loading the newest one. Empty
+  // keeps the library default (latest), which is what breaks into qr_loop when
+  // WhatsApp ships a build whatsapp-web.js does not understand yet.
+  waWebVersion: optional('WA_WEB_VERSION', ''),
   httpPort: Number(optional('HTTP_PORT', 8080)),
   version: optional('npm_package_version', '0.1.0'),
   mediaBaseUrl: optional('MEDIA_BASE_URL', ''),
