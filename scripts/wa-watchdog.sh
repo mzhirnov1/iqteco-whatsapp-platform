@@ -44,8 +44,10 @@ PROBE_TIMEOUT=8       # seconds for the HTTP probe
 BOOT_GRACE=180        # skip a container younger than this (still booting)
 MAX_PER_HOUR=4        # after N recreates in a rolling hour: give up + log (manual)
 CORRUPT_MAX=10240     # GridFS session zip <= this many bytes == corrupt -> wipe
-CPU_HOT_PCT=85        # container CPU% at/above which a run counts as a strike
-CPU_HOT_STRIKES=3     # consecutive strikes (~6 min) before we call it wedged
+# Overridable so the CPU path can be exercised against prod without recreating
+# anything: a low PCT plus an unreachable STRIKES count logs the strike and stops.
+CPU_HOT_PCT="${WA_WATCHDOG_CPU_PCT:-85}"        # CPU% at/above which a run is a strike
+CPU_HOT_STRIKES="${WA_WATCHDOG_CPU_STRIKES:-3}" # consecutive strikes (~6 min) → wedged
 PODMAN=/usr/bin/podman
 
 mkdir -p "$STATE_DIR"
