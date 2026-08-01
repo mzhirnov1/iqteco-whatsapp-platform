@@ -98,8 +98,18 @@ final class InstancePool
             $status = $this->manager->containerStatus($cname);
             if ($status === 'running') continue;
 
+            // A pooled instance parks itself once its QR goes unscanned (exit 0)
+            // so it stops asking WhatsApp for a new code every 20s. That is the
+            // normal resting state now, NOT a corpse: reaping it would put the
+            // pool in a create → park → reap → create loop, churning fresh
+            // sessions endlessly — the exact behaviour we are trying to stop.
+            // It keeps its QR in the DB, stays claimable, and is started again
+            // on demand. Only a non-zero exit (137 = OOM-kill) is a real death.
+            if ($status === 'exited' && $this->manager->containerExitCode($cname) === 0) {
+                continue;
+            }
+
             // Grace window only for a still-missing container (mid-create race).
-            // An 'exited' container is definitively dead — reap immediately.
             if ($status === 'missing') {
                 $age = (isset($doc['createdAt']) && $doc['createdAt'] instanceof UTCDateTime)
                     ? $now - $doc['createdAt']->toDateTime()->getTimestamp()
@@ -159,6 +169,22 @@ final class InstancePool
             ],
         );
         if (!$result) return null;
+
+        // A pooled instance is normally parked (stopped) so it is not sitting on
+        // the QR screen polling WhatsApp for days. Now that it has a real owner,
+        // start it — before the config push below, which talks to the container.
+        try {
+            $outcome = $this->manager->ensureRunning((string)$result['idInstance']);
+            if ($outcome === 'failed') {
+                $this->logger->error('InstancePool: claimed instance would not start', [
+                    'idInstance' => $result['idInstance'],
+                ]);
+            }
+        } catch (\Throwable $e) {
+            $this->logger->error('InstancePool: start on claim failed', [
+                'idInstance' => $result['idInstance'], 'err' => $e->getMessage(),
+            ]);
+        }
 
         // Push the new webhookUrl to the container (it pulled config at startup)
         $this->notifyContainerConfigChange($result);

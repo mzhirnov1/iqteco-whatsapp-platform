@@ -95,6 +95,38 @@ final class PodmanRunner
         return $proc->isSuccessful();
     }
 
+    /**
+     * Start an existing (created/exited) container. Verified on this host:
+     * the static --ip6 recorded at create time survives, so a started container
+     * comes back on the network and nginx reaches it — no recreate needed.
+     */
+    public function start(string $name): bool
+    {
+        $name = $this->validateName($name);
+        $proc = new Process([
+            $this->config['podman']['sudo_binary'],
+            $this->config['podman']['binary'],
+            'start', $name
+        ]);
+        $proc->setWorkingDirectory('/tmp');
+        $proc->setTimeout(60);
+        try {
+            $proc->run();
+        } catch (\Throwable $e) {
+            $this->logger->warning('PodmanRunner.start failed', ['name' => $name, 'err' => $e->getMessage()]);
+            return false;
+        }
+        if (!$proc->isSuccessful()) {
+            $this->logger->warning('PodmanRunner.start unsuccessful', [
+                'name' => $name,
+                'err'  => $proc->getErrorOutput() ?: $proc->getOutput(),
+            ]);
+            return false;
+        }
+        $this->logger->info('PodmanRunner.start ok', ['name' => $name]);
+        return true;
+    }
+
     public function rm(string $name, bool $force = true): bool
     {
         $name = $this->validateName($name);

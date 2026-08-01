@@ -164,14 +164,33 @@ final class PartnerApiController
             ['projection' => [
                 'lastQr' => 1, 'lastQrAt' => 1, 'qrKind' => 1,
                 'qrExpiresAt' => 1, 'state' => 1, 'type' => 1,
+                'containerName' => 1, 'deletedAt' => 1,
             ]]
         );
         if (!$instance) {
             $this->respond(404, ['error' => 'not_found']);
             return;
         }
+
+        // An instance shuts itself down when its QR goes unscanned, so that it
+        // stops asking WhatsApp for a new code every 20s from our shared egress
+        // IP. A poll here means somebody is sitting on the pairing screen right
+        // now, which is exactly when it should be running again. Deleted and
+        // pending-delete instances are left alone.
+        $starting = false;
+        if (empty($instance['deletedAt'])) {
+            $outcome = $this->manager()->ensureRunning($idInstance);
+            // 'started'/'recreated' → container was down; the QR below is stale
+            // and a fresh one lands within a few seconds. Tell the caller to keep polling.
+            $starting = ($outcome === 'started' || $outcome === 'recreated');
+        }
+
         $this->respond(200, [
-            'qr' => $instance['lastQr'] ?? null,
+            'starting' => $starting,
+            // Withhold the stored QR while booting: it was minted before the
+            // container stopped and is long expired, so showing it would hand
+            // the user a code that cannot be scanned.
+            'qr' => $starting ? null : ($instance['lastQr'] ?? null),
             'kind' => $instance['qrKind'] ?? 'qr',
             'type' => $instance['type'] ?? 'whatsapp',
             'state' => $instance['state'] ?? null,

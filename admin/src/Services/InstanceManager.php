@@ -361,12 +361,61 @@ final class InstanceManager
      * Returns 'running' | 'exited' | 'missing'. Used by the pool reaper so a
      * container that OOM-died (Exited 137) stops counting as a live warm slot.
      */
+    /**
+     * Bring an instance back up on demand.
+     *
+     * Instances now stop themselves when a QR goes unscanned (QR_IDLE_TTL_MS in
+     * the instance container) so they stop hammering WhatsApp from our single
+     * egress IP. That only works if something starts them again the moment a
+     * user actually wants to see a QR — this is that something.
+     *
+     * Returns: 'running' (already up), 'started' (was stopped), 'recreated'
+     * (container was gone), or 'failed'.
+     */
+    public function ensureRunning(string $idInstance): string
+    {
+        $inst = $this->find($idInstance);
+        if (!$inst) return 'failed';
+        $name = (string)($inst['containerName'] ?? '');
+        if ($name === '') return 'failed';
+
+        $status = $this->containerStatus($name);
+        if ($status === 'running') return 'running';
+
+        if ($status === 'exited') {
+            if ($this->podman->start($name)) {
+                $this->logger->info('InstanceManager: started on demand', ['idInstance' => $idInstance]);
+                return 'started';
+            }
+            // Start refused (bad state, stale netns): fall through to a rebuild.
+            $this->logger->warning('InstanceManager: start failed, recreating', ['idInstance' => $idInstance]);
+        }
+
+        return $this->reboot($idInstance) ? 'recreated' : 'failed';
+    }
+
     public function containerStatus(string $containerName): string
     {
         if ($containerName === '') return 'missing';
         $insp = $this->podman->inspect($containerName);
         if ($insp === null) return 'missing';
         return !empty($insp['State']['Running']) ? 'running' : 'exited';
+    }
+
+    /**
+     * Exit code of a stopped container, or null if unknown/still running.
+     *
+     * Lets callers tell a clean self-shutdown (0 — e.g. the instance stopping
+     * itself after an unscanned QR) from a death (137 = cgroup OOM-kill, etc).
+     * Without that distinction a deliberately parked container looks identical
+     * to a crashed one.
+     */
+    public function containerExitCode(string $containerName): ?int
+    {
+        if ($containerName === '') return null;
+        $insp = $this->podman->inspect($containerName);
+        if ($insp === null || !empty($insp['State']['Running'])) return null;
+        return isset($insp['State']['ExitCode']) ? (int)$insp['State']['ExitCode'] : null;
     }
 
     public function findOrFail(string $idInstance): array
