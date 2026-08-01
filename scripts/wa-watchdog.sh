@@ -12,7 +12,10 @@
 # DETECTION: probe each running wa-/tg-<id> container's public API with a bogus
 # token. A live app answers 401/403 within the timeout; a hung/unreachable
 # upstream yields 502 (or curl timeout -> 000). Healthy-but-notAuthorized
-# instances answer 401, so qr_loop / WhatsApp-ban churn is LEFT ALONE.
+# instances answer 401, so qr_loop / WhatsApp-ban churn is LEFT ALONE — UNLESS
+# the container is also pegging a CPU core across several consecutive runs,
+# which means the node API is answering while the browser under it is wedged
+# (see the CPU_HOT_* block below).
 #
 # REMEDIATION: recreate the container via the platform's own
 # InstanceManager::reboot (scripts/wa-recover.php) — i.e. stop -> rm -> run,
@@ -41,6 +44,8 @@ PROBE_TIMEOUT=8       # seconds for the HTTP probe
 BOOT_GRACE=180        # skip a container younger than this (still booting)
 MAX_PER_HOUR=4        # after N recreates in a rolling hour: give up + log (manual)
 CORRUPT_MAX=10240     # GridFS session zip <= this many bytes == corrupt -> wipe
+CPU_HOT_PCT=85        # container CPU% at/above which a run counts as a strike
+CPU_HOT_STRIKES=3     # consecutive strikes (~6 min) before we call it wedged
 PODMAN=/usr/bin/podman
 
 mkdir -p "$STATE_DIR"
@@ -61,6 +66,25 @@ record_restart() {      # $1=name
 last_restart() {        # $1=name
   local f="$STATE_DIR/$1.restarts"
   [ -f "$f" ] && tail -n1 "$f" 2>/dev/null || echo 0
+}
+
+# ---- wedged-browser detection ------------------------------------------
+# The HTTP probe alone cannot see this failure: whatsapp-web.js can lose its
+# session and spin the Chromium page in an endless QR/evaluate loop while the
+# node API keeps answering 401 — so the probe below calls it "healthy" and
+# leaves it alone (upstream whatsapp-web.js#3846: client.destroy hangs because
+# pupBrowser.close() never resolves). Observed twice at a pegged core for 29
+# days. We therefore also sample per-container CPU and require several
+# consecutive hot samples before acting, so a legitimate login/sync spike
+# (which is short) is never mistaken for a wedge.
+declare -A CPU_PCT
+while IFS='|' read -r cname cpct; do
+  [ -n "$cname" ] && CPU_PCT["$cname"]="${cpct%\%}"
+done < <($PODMAN stats --no-stream --format '{{.Name}}|{{.CPUPerc}}' 2>/dev/null)
+
+cpu_strikes() {         # $1=name
+  local f="$STATE_DIR/$1.hicpu"
+  [ -f "$f" ] && cat "$f" 2>/dev/null || echo 0
 }
 
 # GridFS session size in bytes for a WA instance, -1 if none
@@ -92,20 +116,42 @@ while IFS='|' read -r name state; do
   code=$(curl -s -m "$PROBE_TIMEOUT" -o /dev/null -w '%{http_code}' \
          "$API_BASE/waInstance$id/getStateInstance/WATCHDOG_PROBE" 2>/dev/null)
 
-  # healthy: any non-5xx, non-000 HTTP response (401/403/200/404 …)
+  reason="HTTP $code"
+
+  # answering HTTP (401/403/200/404 …): the node API is alive, but the browser
+  # underneath may still be wedged — so fall through to the CPU check instead
+  # of trusting the status code on its own.
   if [ "$code" != "000" ] && [ "${code:0:1}" != "5" ]; then
-    continue
+    cpu_raw=${CPU_PCT[$name]:-0}
+    cpu_int=${cpu_raw%%.*}; cpu_int=${cpu_int:-0}
+    case "$cpu_int" in (*[!0-9]*|'') cpu_int=0 ;; esac
+
+    if [ "$cpu_int" -lt "$CPU_HOT_PCT" ]; then
+      rm -f "$STATE_DIR/$name.hicpu"      # cooled off: forget past strikes
+      continue
+    fi
+
+    strikes=$(( $(cpu_strikes "$name") + 1 ))
+    echo "$strikes" > "$STATE_DIR/$name.hicpu"
+    if [ "$strikes" -lt "$CPU_HOT_STRIKES" ]; then
+      log "$name: CPU ${cpu_raw}% while HTTP $code (strike $strikes/$CPU_HOT_STRIKES) — watching"
+      continue
+    fi
+
+    log "$name: CPU ${cpu_raw}% for $strikes consecutive runs → wedged browser"
+    rm -f "$STATE_DIR/$name.hicpu"
+    reason="CPU ${cpu_raw}%"
   fi
 
   # unhealthy: hung/unreachable upstream
   lr=$(last_restart "$name")
   if [ $((now - lr)) -lt "$BOOT_GRACE" ]; then
-    log "$name: unhealthy (HTTP $code) — recreated $((now-lr))s ago, awaiting boot"
+    log "$name: unhealthy ($reason) — recreated $((now-lr))s ago, awaiting boot"
     continue
   fi
   cnt=$(restarts_last_hour "$name")
   if [ "$cnt" -ge "$MAX_PER_HOUR" ]; then
-    log "$name: STILL unhealthy (HTTP $code) after ${cnt} recreates/h — GIVING UP, needs manual"
+    log "$name: STILL unhealthy ($reason) after ${cnt} recreates/h — GIVING UP, needs manual"
     gaveup=$((gaveup+1))
     continue
   fi
@@ -119,7 +165,7 @@ while IFS='|' read -r name state; do
     fi
   fi
 
-  log "$name: unhealthy (HTTP $code) → recreate via InstanceManager (#$((cnt+1))/h)"
+  log "$name: unhealthy ($reason) → recreate via InstanceManager (#$((cnt+1))/h)"
   out=$(sudo -u www-data /usr/bin/php "$RECOVER_PHP" "$id" 2>&1 | tail -n1)
   if echo "$out" | grep -q 'reboot=OK'; then
     log "$name: recreated OK"

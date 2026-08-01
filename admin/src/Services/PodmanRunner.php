@@ -76,8 +76,22 @@ final class PodmanRunner
             'stop', '--time=' . $timeoutSec, $name
         ]);
         $proc->setWorkingDirectory('/tmp');
-        $proc->setTimeout($timeoutSec + 10);
-        $proc->run();
+        // A wedged Chromium ignores SIGTERM, so podman only kills it after
+        // --time and then still has to reap the container. The old +10s ceiling
+        // threw ProcessTimedOutException straight out of stop(), which aborted
+        // reboot() BEFORE the rm(force: true) that would have cleaned up — the
+        // container then sat there burning a full core (observed 29 days).
+        $proc->setTimeout($timeoutSec + 50);
+        try {
+            $proc->run();
+        } catch (\Throwable $e) {
+            // Never propagate: every caller falls back to rm(force: true).
+            $this->logger->warning('PodmanRunner.stop timed out, leaving it to rm -f', [
+                'name' => $name,
+                'err'  => $e->getMessage(),
+            ]);
+            return false;
+        }
         return $proc->isSuccessful();
     }
 
