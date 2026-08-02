@@ -1,0 +1,11 @@
+[Unit]
+Description=Re-assert direct egress for instance containers (netavark rewrites its own chain)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Unit=wa-direct-egress.service
+
+[Install]
+WantedBy=timers.target

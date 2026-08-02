@@ -1,0 +1,12 @@
+[Unit]
+Description=wa instance direct egress (keep containers off the host's shared IPv6)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root: edits the ip6 nat table. ExecStart lives in a root-owned path
+# (NOT the www-data app dir) so the web user cannot hijack a privileged service.
+ExecStart=/usr/local/sbin/wa-direct-egress.sh
+TimeoutStartSec=60
+Nice=10
