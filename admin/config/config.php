@@ -29,6 +29,13 @@ return [
     'api' => [
         'base_url' => wa_env('API_BASE_URL') ?: 'https://api.wa.iqteco.com',
     ],
+    // Bitrix24 connector — separate host with its own database, so the /connector
+    // page reads a summary it computes itself. Empty token = page reports "not
+    // configured" instead of showing zeros.
+    'connector' => [
+        'status_url'   => wa_env('CONNECTOR_STATUS_URL') ?: 'https://wa.iqteco.com/connector_status.php',
+        'status_token' => wa_env('CONNECTOR_STATUS_TOKEN') ?: '',
+    ],
     's3' => [
         'endpoint'   => wa_env('S3_ENDPOINT')   ?: 'https://s3.eu-west-2.wasabisys.com',
         'region'     => wa_env('S3_REGION')     ?: 'eu-west-2',

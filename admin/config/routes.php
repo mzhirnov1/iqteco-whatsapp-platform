@@ -15,6 +15,7 @@ return [
     ['POST', '#^/login$#',                               [AuthController::class, 'login']],
     ['POST', '#^/logout$#',                              [AuthController::class, 'logout']],
     ['GET',  '#^/dashboard$#',                           [DashboardController::class, 'index']],
+    ['GET',  '#^/connector$#',                           [\Iqteco\WaAdmin\Controllers\ConnectorStatusController::class, 'index']],
     ['GET',  '#^/instances/new$#',                       [InstanceController::class, 'createForm']],
     ['POST', '#^/instances/new$#',                       [InstanceController::class, 'create']],
     ['GET',  '#^/instances/(?P<id>\d+)$#',               [InstanceController::class, 'show']],
