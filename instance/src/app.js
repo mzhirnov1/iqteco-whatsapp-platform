@@ -130,39 +130,6 @@ async function main() {
   attachEvents();
   await client.initialize().catch((err) => logger.error({ err: err.message }, 'client.initialize failed'));
 
-  // whatsapp-web.js fires its "initial qr" the moment injection finishes, but the
-  // page has no ref that early, so the first code a user can actually scan only
-  // arrives with WhatsApp Web's next rotation. Measured on two cold boots: 59.95s
-  // of spinner, every time, then codes every 20s as normal. Asking for a refresh
-  // right away pulls that first code forward. Only for an unpaired socket — a
-  // restored session must not be poked.
-  try {
-    const initialQr = await client.pupPage.evaluate(async () => {
-      const state = window.require('WAWebSocketModel').Socket.state;
-      if (state !== 'UNPAIRED' && state !== 'UNPAIRED_IDLE') return null;
-      const ref = window.require('WAWebConnModel').Conn.ref;
-      if (!ref) return null;
-      // Same composition whatsapp-web.js uses for its own 'qr' event, so the
-      // string we hand over is byte-identical to the one it would emit.
-      const registrationInfo = await window.require('WAWebSignalStoreApi').waSignalStore.getRegistrationInfo();
-      const noiseKeyPair = await window.require('WAWebUserPrefsInfoStore').waNoiseInfo.get();
-      const b64 = window.require('WABase64');
-      return [
-        ref,
-        b64.encodeB64(noiseKeyPair.staticKeyPair.pubKey),
-        b64.encodeB64(registrationInfo.identityKeyPair.pubKey),
-        window.require('WAWebUserPrefsMultiDevice').getADVSecretKey(),
-        window.require('WAWebCompanionRegClientUtils').DEVICE_PLATFORM,
-      ].join(',');
-    });
-    if (initialQr) {
-      client.emit('qr', initialQr);
-      logger.info('emitted initial QR from the page ref');
-    }
-  } catch (err) {
-    logger.warn({ err: err.message }, 'initial QR emit failed');
-  }
-
   // 7. HTTP server
   const app = express();
   app.use(express.json({ limit: '50mb' }));
@@ -226,6 +193,42 @@ async function main() {
       await shutdown('qr_idle_timeout');
     },
   });
+
+  // 9b. First QR, without waiting for WhatsApp Web's next rotation.
+  //
+  // whatsapp-web.js emits an "initial qr" the moment injection finishes, but that
+  // one never reaches us: measured on three cold boots, the first 'qr' event lands
+  // 59.95s after injection — every time, to a tenth of a second — and only then do
+  // codes arrive every 20s as normal. The page itself is ready long before that:
+  // diagnostics showed a valid Conn.ref (102 chars) with the socket UNPAIRED right
+  // after initialize(). So the code exists; nothing is delivering it. Compose it
+  // from the same ref and key material the library uses and emit it ourselves,
+  // which turns a minute of spinner into a couple of seconds. Runs after the reaper
+  // exists because the 'qr' handler arms it.
+  try {
+    const initialQr = await client.pupPage.evaluate(async () => {
+      const state = window.require('WAWebSocketModel').Socket.state;
+      if (state !== 'UNPAIRED' && state !== 'UNPAIRED_IDLE') return null;
+      const ref = window.require('WAWebConnModel').Conn.ref;
+      if (!ref) return null;
+      const registrationInfo = await window.require('WAWebSignalStoreApi').waSignalStore.getRegistrationInfo();
+      const noiseKeyPair = await window.require('WAWebUserPrefsInfoStore').waNoiseInfo.get();
+      const b64 = window.require('WABase64');
+      return [
+        ref,
+        b64.encodeB64(noiseKeyPair.staticKeyPair.pubKey),
+        b64.encodeB64(registrationInfo.identityKeyPair.pubKey),
+        window.require('WAWebUserPrefsMultiDevice').getADVSecretKey(),
+        window.require('WAWebCompanionRegClientUtils').DEVICE_PLATFORM,
+      ].join(',');
+    });
+    if (initialQr) {
+      client.emit('qr', initialQr);
+      logger.info('emitted initial QR from the page ref');
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'initial QR emit failed');
+  }
 
   // 10. Shutdown
   let shuttingDown = false;
