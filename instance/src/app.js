@@ -137,30 +137,30 @@ async function main() {
   // right away pulls that first code forward. Only for an unpaired socket — a
   // restored session must not be poked.
   try {
-    const diag = await client.pupPage.evaluate(() => {
-      const out = {};
-      const pick = (obj) => {
-        try {
-          const own = Object.keys(obj || {});
-          const proto = Object.getOwnPropertyNames(Object.getPrototypeOf(obj) || {});
-          return own.concat(proto).filter((k) => /qr|refresh|pair|ref/i.test(k));
-        } catch (e) { return ['ERR:' + e.message]; }
-      };
-      try { out.state = window.require('WAWebSocketModel').Socket.state; } catch (e) { out.stateErr = e.message; }
-      try {
-        const Cmd = window.require('WAWebCmd').Cmd;
-        out.cmdKeys = pick(Cmd);
-      } catch (e) { out.cmdErr = e.message; }
-      try {
-        const Conn = window.require('WAWebConnModel').Conn;
-        out.ref = typeof Conn.ref === 'string' ? 'len:' + Conn.ref.length : String(Conn.ref);
-        out.connKeys = pick(Conn);
-      } catch (e) { out.connErr = e.message; }
-      return out;
+    const initialQr = await client.pupPage.evaluate(async () => {
+      const state = window.require('WAWebSocketModel').Socket.state;
+      if (state !== 'UNPAIRED' && state !== 'UNPAIRED_IDLE') return null;
+      const ref = window.require('WAWebConnModel').Conn.ref;
+      if (!ref) return null;
+      // Same composition whatsapp-web.js uses for its own 'qr' event, so the
+      // string we hand over is byte-identical to the one it would emit.
+      const registrationInfo = await window.require('WAWebSignalStoreApi').waSignalStore.getRegistrationInfo();
+      const noiseKeyPair = await window.require('WAWebUserPrefsInfoStore').waNoiseInfo.get();
+      const b64 = window.require('WABase64');
+      return [
+        ref,
+        b64.encodeB64(noiseKeyPair.staticKeyPair.pubKey),
+        b64.encodeB64(registrationInfo.identityKeyPair.pubKey),
+        window.require('WAWebUserPrefsMultiDevice').getADVSecretKey(),
+        window.require('WAWebCompanionRegClientUtils').DEVICE_PLATFORM,
+      ].join(',');
     });
-    logger.info(diag, 'qr diagnostics');
+    if (initialQr) {
+      client.emit('qr', initialQr);
+      logger.info('emitted initial QR from the page ref');
+    }
   } catch (err) {
-    logger.warn({ err: err.message }, 'qr diagnostics failed');
+    logger.warn({ err: err.message }, 'initial QR emit failed');
   }
 
   // 7. HTTP server
