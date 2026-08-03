@@ -194,6 +194,42 @@ async function main() {
     },
   });
 
+  // 9b. First QR, without waiting for WhatsApp Web's next rotation.
+  //
+  // whatsapp-web.js emits an "initial qr" the moment injection finishes, but that
+  // one never reaches us: measured on three cold boots, the first 'qr' event lands
+  // 59.95s after injection — every time, to a tenth of a second — and only then do
+  // codes arrive every 20s as normal. The page itself is ready long before that:
+  // diagnostics showed a valid Conn.ref (102 chars) with the socket UNPAIRED right
+  // after initialize(). So the code exists; nothing is delivering it. Compose it
+  // from the same ref and key material the library uses and emit it ourselves,
+  // which turns a minute of spinner into a couple of seconds. Runs after the reaper
+  // exists because the 'qr' handler arms it.
+  try {
+    const initialQr = await client.pupPage.evaluate(async () => {
+      const state = window.require('WAWebSocketModel').Socket.state;
+      if (state !== 'UNPAIRED' && state !== 'UNPAIRED_IDLE') return null;
+      const ref = window.require('WAWebConnModel').Conn.ref;
+      if (!ref) return null;
+      const registrationInfo = await window.require('WAWebSignalStoreApi').waSignalStore.getRegistrationInfo();
+      const noiseKeyPair = await window.require('WAWebUserPrefsInfoStore').waNoiseInfo.get();
+      const b64 = window.require('WABase64');
+      return [
+        ref,
+        b64.encodeB64(noiseKeyPair.staticKeyPair.pubKey),
+        b64.encodeB64(registrationInfo.identityKeyPair.pubKey),
+        window.require('WAWebUserPrefsMultiDevice').getADVSecretKey(),
+        window.require('WAWebCompanionRegClientUtils').DEVICE_PLATFORM,
+      ].join(',');
+    });
+    if (initialQr) {
+      client.emit('qr', initialQr);
+      logger.info('emitted initial QR from the page ref');
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'initial QR emit failed');
+  }
+
   // 10. Shutdown
   let shuttingDown = false;
   async function shutdown(signal) {
