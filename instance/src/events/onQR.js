@@ -3,6 +3,20 @@
 const qrcode = require('qrcode');
 
 module.exports = (ctx) => async (qr) => {
+  // TEMPORARY (verification build only): fingerprint the code so the one we emit
+  // ourselves can be compared against the next one the library emits. Same tail =
+  // same key material and same format; only the ref differs.
+  try {
+    const crypto = require('crypto');
+    const parts = String(qr).split(',');
+    ctx.logger.info({
+      fields: parts.length,
+      refLen: (parts[0] || '').length,
+      refSha: crypto.createHash('sha1').update(parts[0] || '').digest('hex').slice(0, 12),
+      tailSha: crypto.createHash('sha1').update(parts.slice(1).join(',')).digest('hex').slice(0, 12),
+    }, 'QR fingerprint');
+  } catch (_) { /* verification only */ }
+
   const expiresAt = Math.floor(Date.now() / 1000) + 60;
   ctx.qrCache.qr = qr;
   ctx.qrCache.expiresAt = expiresAt;
