@@ -130,6 +130,25 @@ async function main() {
   attachEvents();
   await client.initialize().catch((err) => logger.error({ err: err.message }, 'client.initialize failed'));
 
+  // whatsapp-web.js fires its "initial qr" the moment injection finishes, but the
+  // page has no ref that early, so the first code a user can actually scan only
+  // arrives with WhatsApp Web's next rotation. Measured on two cold boots: 59.95s
+  // of spinner, every time, then codes every 20s as normal. Asking for a refresh
+  // right away pulls that first code forward. Only for an unpaired socket — a
+  // restored session must not be poked.
+  try {
+    const socketState = await client.pupPage.evaluate(() => {
+      const state = window.require('WAWebSocketModel').Socket.state;
+      if (state === 'UNPAIRED' || state === 'UNPAIRED_IDLE') {
+        window.require('WAWebCmd').Cmd.refreshQR();
+      }
+      return state;
+    });
+    logger.info({ socketState }, 'initial QR refresh requested');
+  } catch (err) {
+    logger.warn({ err: err.message }, 'initial QR refresh failed');
+  }
+
   // 7. HTTP server
   const app = express();
   app.use(express.json({ limit: '50mb' }));
