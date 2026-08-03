@@ -137,16 +137,30 @@ async function main() {
   // right away pulls that first code forward. Only for an unpaired socket — a
   // restored session must not be poked.
   try {
-    const socketState = await client.pupPage.evaluate(() => {
-      const state = window.require('WAWebSocketModel').Socket.state;
-      if (state === 'UNPAIRED' || state === 'UNPAIRED_IDLE') {
-        window.require('WAWebCmd').Cmd.refreshQR();
-      }
-      return state;
+    const diag = await client.pupPage.evaluate(() => {
+      const out = {};
+      const pick = (obj) => {
+        try {
+          const own = Object.keys(obj || {});
+          const proto = Object.getOwnPropertyNames(Object.getPrototypeOf(obj) || {});
+          return own.concat(proto).filter((k) => /qr|refresh|pair|ref/i.test(k));
+        } catch (e) { return ['ERR:' + e.message]; }
+      };
+      try { out.state = window.require('WAWebSocketModel').Socket.state; } catch (e) { out.stateErr = e.message; }
+      try {
+        const Cmd = window.require('WAWebCmd').Cmd;
+        out.cmdKeys = pick(Cmd);
+      } catch (e) { out.cmdErr = e.message; }
+      try {
+        const Conn = window.require('WAWebConnModel').Conn;
+        out.ref = typeof Conn.ref === 'string' ? 'len:' + Conn.ref.length : String(Conn.ref);
+        out.connKeys = pick(Conn);
+      } catch (e) { out.connErr = e.message; }
+      return out;
     });
-    logger.info({ socketState }, 'initial QR refresh requested');
+    logger.info(diag, 'qr diagnostics');
   } catch (err) {
-    logger.warn({ err: err.message }, 'initial QR refresh failed');
+    logger.warn({ err: err.message }, 'qr diagnostics failed');
   }
 
   // 7. HTTP server
