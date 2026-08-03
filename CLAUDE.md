@@ -79,7 +79,7 @@ Bitrix24, которая существует в legacy-проекте `ssh root
 
 Машинно-читаемая спека OpenAPI 3.1, **source of truth для HTTP-контракта**.
 Покрывает все четыре поверхности: Green API (`waInstance/*`, 32 метода),
-исходящие webhook'и (15 типов), Partner API (4 метода) и
+исходящие webhook'и (15 типов), Partner API (5 методов) и
 Admin/Container API (8 эндпоинтов). Поддерживает оба типа инстансов —
 WhatsApp (`instance/`) и Telegram (`instance-telegram/`) — surface
 у них общий.

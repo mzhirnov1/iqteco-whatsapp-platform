@@ -1409,6 +1409,56 @@ paths:
                     phoneNumber: { type: string }
                     name: { type: string }
 
+  /api/partner/qrPoll/{token}/{id}:
+    get:
+      tags: [partner]
+      summary: Текущий QR (и пробуждение инстанса)
+      description: |
+        Отдаёт последний QR инстанса. Побочный эффект намеренный: непривязанный
+        инстанс гасит собственный контейнер, если QR никто не сканирует (иначе он
+        просит у WhatsApp новый код каждые 20 секунд с нашего общего egress-IP, за
+        что WhatsApp блокирует номера). Запрос сюда означает, что кто-то прямо
+        сейчас открыл экран привязки, — поэтому контейнер поднимается обратно.
+
+        Пока контейнер грузится, ответ содержит `starting: true` и `qr: null`:
+        сохранённый QR к этому моменту протух, показывать его нельзя. Клиенту
+        следует повторить запрос через несколько секунд. Холодный старт до первого
+        свежего QR занимает около минуты.
+      operationId: partnerQrPoll
+      servers: [{ url: https://admin.wa.iqteco.com }]
+      security:
+        - PartnerTokenInUrl: []
+        - PartnerTokenHeader: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  starting:
+                    type: boolean
+                    description: Контейнер поднимается прямо сейчас; QR придёт позже.
+                  qr:
+                    type: [string, 'null']
+                    description: 'PNG в base64 (data-URI). `null`, пока идёт старт контейнера.'
+                  kind: { type: string, enum: [qr, code] }
+                  type: { type: string, enum: [whatsapp, telegram] }
+                  state: { $ref: '#/components/schemas/StateInstance' }
+                  qrAt: { type: [integer, 'null'], description: 'Unix-время выдачи QR' }
+                  expiresAt: { type: [integer, 'null'], description: 'Unix-время протухания QR' }
+        '404': { description: not_found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
   # =============================================================
   # Admin / Container API (X-Admin-Token)
   # =============================================================

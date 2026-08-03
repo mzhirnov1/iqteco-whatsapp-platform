@@ -51,6 +51,10 @@ return [
     ['POST', '#^/api/partner/deleteInstanceAccount/(?P<token>[a-zA-Z0-9._-]+)$#',         [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'deleteInstance']],
     ['POST', '#^/api/partner/deleteInstance/(?P<token>[a-zA-Z0-9._-]+)/(?P<id>\d+)$#',    [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'deleteInstance']],
     ['GET',  '#^/api/partner/getInstances/(?P<token>[a-zA-Z0-9._-]+)$#',                  [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'getInstances']],
+    // Отдаёт текущий QR и попутно поднимает погашенный контейнер: непривязанный
+    // инстанс гасит себя сам, чтобы не просить у WhatsApp новый код каждые 20 секунд.
+    // Запрос сюда означает, что кто-то прямо сейчас смотрит на экран привязки.
+    ['GET',  '#^/api/partner/qrPoll/(?P<token>[a-zA-Z0-9._-]+)/(?P<id>\d+)$#',            [\Iqteco\WaAdmin\Controllers\PartnerApiController::class, 'qrPoll']],
 
     ['GET',  '#^/settings$#',                            [SettingsController::class, 'index']],
 

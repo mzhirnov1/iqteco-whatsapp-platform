@@ -369,8 +369,8 @@ final class InstanceManager
      * egress IP. That only works if something starts them again the moment a
      * user actually wants to see a QR — this is that something.
      *
-     * Returns: 'running' (already up), 'started' (was stopped), 'recreated'
-     * (container was gone), or 'failed'.
+     * Returns: 'running' (already up), 'recreated' (container was stopped or gone
+     * and has been rebuilt), or 'failed'.
      */
     public function ensureRunning(string $idInstance): string
     {
@@ -382,15 +382,11 @@ final class InstanceManager
         $status = $this->containerStatus($name);
         if ($status === 'running') return 'running';
 
-        if ($status === 'exited') {
-            if ($this->podman->start($name)) {
-                $this->logger->info('InstanceManager: started on demand', ['idInstance' => $idInstance]);
-                return 'started';
-            }
-            // Start refused (bad state, stale netns): fall through to a rebuild.
-            $this->logger->warning('InstanceManager: start failed, recreating', ['idInstance' => $idInstance]);
-        }
-
+        // A stopped container is always rebuilt, never `podman start`ed: a raw start
+        // does NOT re-apply --ip6, so the container comes up off the network and every
+        // request through nginx answers 502 — the exact failure wa-recover.php exists
+        // to undo. reboot() (stop -> rm -> run with the stored static IPv6) costs about
+        // two seconds and is the only way back that actually works.
         return $this->reboot($idInstance) ? 'recreated' : 'failed';
     }
 
