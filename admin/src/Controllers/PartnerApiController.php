@@ -29,6 +29,10 @@ use Iqteco\WaAdmin\Services\PodmanRunner;
  *        → { deleteInstanceAccount: 1 }
  *   GET  /api/partner/getInstances/{token}
  *        → [ {idInstance, apiTokenInstance, apiUrl, state, ...}, ... ]
+ *   GET  /api/partner/qrPoll/{token}/{id}
+ *        → { starting, qr, kind, type, state, qrAt, expiresAt }
+ *        Wakes a parked instance as a side effect; answers immediately and
+ *        finishes the wake-up after the response (see qrPoll()).
  */
 final class PartnerApiController
 {
@@ -179,10 +183,9 @@ final class PartnerApiController
         // pending-delete instances are left alone.
         $starting = false;
         if (empty($instance['deletedAt'])) {
-            $outcome = $this->manager()->ensureRunning($idInstance);
-            // 'started'/'recreated' → container was down; the QR below is stale
-            // and a fresh one lands within a few seconds. Tell the caller to keep polling.
-            $starting = ($outcome === 'started' || $outcome === 'recreated');
+            $containerName = (string)($instance['containerName'] ?? '');
+            $starting = $containerName !== ''
+                && $this->manager()->containerStatus($containerName) !== 'running';
         }
 
         $this->respond(200, [
@@ -197,6 +200,48 @@ final class PartnerApiController
             'qrAt' => isset($instance['lastQrAt']) ? $instance['lastQrAt']->toDateTime()->getTimestamp() : null,
             'expiresAt' => isset($instance['qrExpiresAt']) ? $instance['qrExpiresAt']->toDateTime()->getTimestamp() : null,
         ]);
+
+        // Only now, with the answer already on its way, do we bring the container
+        // back: rebuilding one takes 20-35 seconds, and holding the request open
+        // for that long runs past the caller's own HTTP timeout — the connector
+        // gives up at 30s and shows an error instead of the "connecting" spinner.
+        if ($starting) {
+            $this->wakeUp($idInstance);
+        }
+    }
+
+    /**
+     * Bring an instance back up after the response has been flushed.
+     *
+     * A pairing screen polls every few seconds while the container is still
+     * booting, so without the lock the second poll would start its own
+     * stop -> rm -> run on top of the first one. Whoever loses the lock simply
+     * does nothing: a wake-up is already in flight.
+     */
+    private function wakeUp(string $idInstance): void
+    {
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        }
+        ignore_user_abort(true);
+        set_time_limit(180);
+
+        $lock = fopen(sys_get_temp_dir() . '/wa-wake-' . $idInstance . '.lock', 'c');
+        if ($lock === false) return;
+        if (!flock($lock, LOCK_EX | LOCK_NB)) {
+            fclose($lock);
+            return;
+        }
+        try {
+            $this->manager()->ensureRunning($idInstance);
+        } catch (\Throwable $e) {
+            (new Logger('partner-api'))->error('qrPoll: wake-up failed', [
+                'idInstance' => $idInstance, 'err' => $e->getMessage(),
+            ]);
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
 
     /**
