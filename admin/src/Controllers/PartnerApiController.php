@@ -181,31 +181,39 @@ final class PartnerApiController
         // IP. A poll here means somebody is sitting on the pairing screen right
         // now, which is exactly when it should be running again. Deleted and
         // pending-delete instances are left alone.
-        $starting = false;
+        $needsWake = false;
         if (empty($instance['deletedAt'])) {
             $containerName = (string)($instance['containerName'] ?? '');
-            $starting = $containerName !== ''
+            $needsWake = $containerName !== ''
                 && $this->manager()->containerStatus($containerName) !== 'running';
         }
 
+        // The stored QR outlives the session that minted it: a container that was
+        // parked days ago still has its last code sitting in the DB. A container
+        // also needs about a minute after boot before it produces a fresh one, so
+        // "running again" is not the same as "has a code to show". Handing over an
+        // expired QR is worse than showing nothing — the user aims a phone at a
+        // code that cannot work and concludes the pairing is broken. Report both
+        // cases as 'starting' so the caller keeps its spinner up and polls again.
+        $expiresAt = isset($instance['qrExpiresAt']) ? $instance['qrExpiresAt']->toDateTime()->getTimestamp() : null;
+        $qrExpired = $expiresAt !== null && $expiresAt <= time();
+        $pending = $needsWake || $qrExpired;
+
         $this->respond(200, [
-            'starting' => $starting,
-            // Withhold the stored QR while booting: it was minted before the
-            // container stopped and is long expired, so showing it would hand
-            // the user a code that cannot be scanned.
-            'qr' => $starting ? null : ($instance['lastQr'] ?? null),
+            'starting' => $pending,
+            'qr' => $pending ? null : ($instance['lastQr'] ?? null),
             'kind' => $instance['qrKind'] ?? 'qr',
             'type' => $instance['type'] ?? 'whatsapp',
             'state' => $instance['state'] ?? null,
             'qrAt' => isset($instance['lastQrAt']) ? $instance['lastQrAt']->toDateTime()->getTimestamp() : null,
-            'expiresAt' => isset($instance['qrExpiresAt']) ? $instance['qrExpiresAt']->toDateTime()->getTimestamp() : null,
+            'expiresAt' => $expiresAt,
         ]);
 
         // Only now, with the answer already on its way, do we bring the container
         // back: rebuilding one takes 20-35 seconds, and holding the request open
         // for that long runs past the caller's own HTTP timeout — the connector
         // gives up at 30s and shows an error instead of the "connecting" spinner.
-        if ($starting) {
+        if ($needsWake) {
             $this->wakeUp($idInstance);
         }
     }
