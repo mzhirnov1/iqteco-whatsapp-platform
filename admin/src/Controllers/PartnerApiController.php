@@ -195,8 +195,12 @@ final class PartnerApiController
         // expired QR is worse than showing nothing — the user aims a phone at a
         // code that cannot work and concludes the pairing is broken. Report both
         // cases as 'starting' so the caller keeps its spinner up and polls again.
+        // A paired instance is exempt: its last QR expired the moment it was scanned
+        // and no new one is coming, so calling that 'starting' would describe a wait
+        // that never ends.
+        $authorized = strtolower((string)($instance['state'] ?? '')) === 'authorized';
         $expiresAt = isset($instance['qrExpiresAt']) ? $instance['qrExpiresAt']->toDateTime()->getTimestamp() : null;
-        $qrExpired = $expiresAt !== null && $expiresAt <= time();
+        $qrExpired = !$authorized && $expiresAt !== null && $expiresAt <= time();
         $pending = $needsWake || $qrExpired;
 
         $this->respond(200, [
