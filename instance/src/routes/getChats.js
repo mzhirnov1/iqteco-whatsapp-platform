@@ -22,15 +22,34 @@ async function chatsPerChatFallback(ctx) {
     // window.Store is gone since upstream 883d7e4.
     const models = window.require('WAWebCollections').Chat.getModelsArray();
     const settled = await Promise.allSettled(models.map((c) => window.WWebJS.getChatModel(c)));
-    return {
-      chats: settled.filter((s) => s.status === 'fulfilled').map((s) => s.value),
-      failed: settled
-        .map((s, i) => (s.status === 'rejected' ? {
-          chatId: models[i]?.id?._serialized || null,
+    const chats = [];
+    const failed = [];
+    settled.forEach((s, i) => {
+      if (s.status === 'fulfilled') { chats.push(s.value); return; }
+      // getChatModel dies inside an IDB lookup (observed on LID-era chats:
+      // "No key or key range specified"), but the in-memory model itself is
+      // fine — build a minimal entry from its plain attributes so the chat
+      // still shows up in the list, just without a last-message preview.
+      const m = models[i];
+      try {
+        chats.push({
+          id: { _serialized: m.id._serialized },
+          name: m.name || m.formattedTitle || '',
+          formattedTitle: m.formattedTitle || '',
+          isGroup: /@g\.us$/.test(m.id._serialized),
+          archived: !!(m.archived ?? m.archive),
+          unreadCount: m.unreadCount || 0,
+          timestamp: m.t || null,
+          lastMessage: null,
+        });
+      } catch (e) {
+        failed.push({
+          chatId: (m && m.id && m.id._serialized) || null,
           reason: String((s.reason && (s.reason.stack || s.reason.message)) || s.reason).slice(0, 500),
-        } : null))
-        .filter(Boolean),
-    };
+        });
+      }
+    });
+    return { chats, failed };
   });
 }
 
