@@ -15,7 +15,9 @@
 # instances answer 401, so qr_loop / WhatsApp-ban churn is LEFT ALONE — UNLESS
 # the container is also pegging a CPU core across several consecutive runs,
 # which means the node API is answering while the browser under it is wedged
-# (see the CPU_HOT_* block below).
+# (see the CPU_HOT_* block below). WA containers that pass both checks get a
+# third, deeper probe: getChats with the real token (see chats_probe below) —
+# "authorized" alone is no guarantee the page's read side still works.
 #
 # REMEDIATION: recreate the container via the platform's own
 # InstanceManager::reboot (scripts/wa-recover.php) — i.e. stop -> rm -> run,
@@ -48,12 +50,27 @@ CORRUPT_MAX=10240     # GridFS session zip <= this many bytes == corrupt -> wipe
 # anything: a low PCT plus an unreachable STRIKES count logs the strike and stops.
 CPU_HOT_PCT="${WA_WATCHDOG_CPU_PCT:-85}"        # CPU% at/above which a run is a strike
 CPU_HOT_STRIKES="${WA_WATCHDOG_CPU_STRIKES:-3}" # consecutive strikes (~6 min) → wedged
+CHATS_PROBE_EVERY="${WA_WATCHDOG_CHATS_EVERY:-300}"   # deep getChats probe at most this often per WA container
+CHATS_STRIKES="${WA_WATCHDOG_CHATS_STRIKES:-3}"       # consecutive failing probes (~15 min) → degraded
+CHATS_TIMEOUT=30      # deep probe serializes every chat — heavy accounts are slow
+TG_ENV="${WA_WATCHDOG_TG_ENV:-/etc/wa-watchdog-telegram.env}"
 PODMAN=/usr/bin/podman
 
 mkdir -p "$STATE_DIR"
 now=$(date +%s)
 ts()  { date '+%Y-%m-%dT%H:%M:%S%:z'; }
 log() { echo "[$(ts)] $*" >> "$LOG"; }
+
+# Optional Telegram alert: TG_TOKEN/TG_CHAT in $TG_ENV (chmod 600, root-only).
+# Silent no-op when the file is absent — the watchdog must never depend on it.
+tg_alert() {
+  [ -f "$TG_ENV" ] || return 0
+  # shellcheck disable=SC1090
+  . "$TG_ENV" 2>/dev/null || return 0
+  [ -n "${TG_TOKEN:-}" ] && [ -n "${TG_CHAT:-}" ] || return 0
+  curl -s -m 10 -o /dev/null "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+    --data-urlencode "chat_id=$TG_CHAT" --data-urlencode "text=[wa-watchdog] $1" || true
+}
 
 restarts_last_hour() {  # $1=name
   local f="$STATE_DIR/$1.restarts"
@@ -100,6 +117,62 @@ wipe_session() {        # $1=id
     "const fn='RemoteAuth-$1.zip'; const ids=db.wa_sessions.files.find({filename:fn},{_id:1}).toArray().map(d=>d._id); db.wa_sessions.chunks.deleteMany({files_id:{\$in:ids}}); db.wa_sessions.files.deleteMany({filename:fn});" \
     >/dev/null 2>&1
 }
+instance_token() {      # $1=id → apiToken or empty
+  mongosh --quiet "$MONGO_URI" --eval \
+    "const i=db.instances.findOne({idInstance:'$1'},{apiToken:1}); print(i&&i.apiToken?i.apiToken:'')" \
+    2>/dev/null | tr -d '[:space:]'
+}
+
+# ---- degraded-API detection (WA only) -----------------------------------
+# "authorized" is no health guarantee: the page's chat serialization can
+# break (WA Web build drift, a poisoned chat model) while state and messaging
+# stay green — observed as two days of getChats 500 on a happily-authorized
+# wa-1101008412. Probe getChats with the real token at most every
+# CHATS_PROBE_EVERY seconds; only 5xx/timeout counts as a strike (466
+# notAuthorized et al. are healthy here). One recreate usually cures a wedged
+# page; if two recreates in 24h did not, recreating cannot fix it (wweb.js /
+# WA Web incompatibility) → alert once per 6h and stand down instead of
+# recycling forever.
+CHATS_REASON=""
+chats_probe() {         # $1=name $2=id → sets CHATS_REASON: "" | "giveup" | "getChats HTTP <code>"
+  local name="$1" id="$2" lastp tok ccode cstrikes crec ga
+  CHATS_REASON=""
+  lastp=$(cat "$STATE_DIR/$name.chatsts" 2>/dev/null || echo 0)
+  case "$lastp" in (*[!0-9]*|'') lastp=0 ;; esac
+  [ $((now - lastp)) -ge "$CHATS_PROBE_EVERY" ] || return 0
+  echo "$now" > "$STATE_DIR/$name.chatsts"
+  tok=$(instance_token "$id"); [ -n "$tok" ] || return 0
+  ccode=$(curl -s -m "$CHATS_TIMEOUT" -o /dev/null -w '%{http_code}' \
+          "$API_BASE/waInstance$id/getChats/$tok" 2>/dev/null)
+  if [ "$ccode" != "000" ] && [ "${ccode:0:1}" != "5" ]; then
+    rm -f "$STATE_DIR/$name.chats" "$STATE_DIR/$name.chats_alerted"
+    return 0
+  fi
+  cstrikes=$(( $(cat "$STATE_DIR/$name.chats" 2>/dev/null || echo 0) + 1 ))
+  echo "$cstrikes" > "$STATE_DIR/$name.chats"
+  if [ "$cstrikes" -lt "$CHATS_STRIKES" ]; then
+    log "$name: getChats HTTP $ccode while authorized (strike $cstrikes/$CHATS_STRIKES) — watching"
+    return 0
+  fi
+  rm -f "$STATE_DIR/$name.chats"
+  crec=$(awk -v c=$((now-86400)) '$1>=c' "$STATE_DIR/$name.chatsrec" 2>/dev/null | wc -l | tr -d ' ')
+  case "$crec" in (*[!0-9]*|'') crec=0 ;; esac
+  if [ "$crec" -ge 2 ]; then
+    log "$name: getChats still failing after $crec recreates/24h — GIVING UP (suspect wweb.js / WA Web incompatibility)"
+    ga="$STATE_DIR/$name.chats_alerted"
+    if [ ! -f "$ga" ] || [ $((now - $(cat "$ga" 2>/dev/null || echo 0))) -ge 21600 ]; then
+      echo "$now" > "$ga"
+      tg_alert "$name: getChats keeps failing after $crec recreates in 24h — likely wweb.js / WA Web incompatibility; needs a library upgrade or a waWebVersion pin"
+    fi
+    CHATS_REASON="giveup"
+    return 0
+  fi
+  echo "$now" >> "$STATE_DIR/$name.chatsrec"
+  awk -v c=$((now-86400)) '$1>=c' "$STATE_DIR/$name.chatsrec" > "$STATE_DIR/$name.chatsrec.tmp" 2>/dev/null \
+    && mv "$STATE_DIR/$name.chatsrec.tmp" "$STATE_DIR/$name.chatsrec"
+  tg_alert "$name: getChats degraded (HTTP $ccode while authorized) — recreating container"
+  CHATS_REASON="getChats HTTP $ccode"
+}
 
 checked=0; recovered=0; gaveup=0
 
@@ -130,19 +203,28 @@ while IFS='|' read -r name state; do
 
     if [ "$cpu_int" -lt "$CPU_HOT_PCT" ]; then
       rm -f "$STATE_DIR/$name.hicpu"      # cooled off: forget past strikes
-      continue
-    fi
 
-    strikes=$(( $(cpu_strikes "$name") + 1 ))
-    echo "$strikes" > "$STATE_DIR/$name.hicpu"
-    if [ "$strikes" -lt "$CPU_HOT_STRIKES" ]; then
-      log "$name: CPU ${cpu_raw}% while HTTP $code (strike $strikes/$CPU_HOT_STRIKES) — watching"
-      continue
-    fi
+      # node alive + CPU cool: the deep probe decides whether the read side
+      # of the page is actually working (see chats_probe above).
+      reason=""
+      if [ "$kind" = "wa" ]; then
+        chats_probe "$name" "$id"
+        reason="$CHATS_REASON"
+      fi
+      if [ "$reason" = "giveup" ]; then gaveup=$((gaveup+1)); continue; fi
+      [ -n "$reason" ] || continue
+    else
+      strikes=$(( $(cpu_strikes "$name") + 1 ))
+      echo "$strikes" > "$STATE_DIR/$name.hicpu"
+      if [ "$strikes" -lt "$CPU_HOT_STRIKES" ]; then
+        log "$name: CPU ${cpu_raw}% while HTTP $code (strike $strikes/$CPU_HOT_STRIKES) — watching"
+        continue
+      fi
 
-    log "$name: CPU ${cpu_raw}% for $strikes consecutive runs → wedged browser"
-    rm -f "$STATE_DIR/$name.hicpu"
-    reason="CPU ${cpu_raw}%"
+      log "$name: CPU ${cpu_raw}% for $strikes consecutive runs → wedged browser"
+      rm -f "$STATE_DIR/$name.hicpu"
+      reason="CPU ${cpu_raw}%"
+    fi
   fi
 
   # unhealthy: hung/unreachable upstream
@@ -154,6 +236,11 @@ while IFS='|' read -r name state; do
   cnt=$(restarts_last_hour "$name")
   if [ "$cnt" -ge "$MAX_PER_HOUR" ]; then
     log "$name: STILL unhealthy ($reason) after ${cnt} recreates/h — GIVING UP, needs manual"
+    ga="$STATE_DIR/$name.gaveup_alerted"
+    if [ ! -f "$ga" ] || [ $((now - $(cat "$ga" 2>/dev/null || echo 0))) -ge 21600 ]; then
+      echo "$now" > "$ga"
+      tg_alert "$name: still unhealthy ($reason) after ${cnt} recreates in an hour — giving up, needs manual attention"
+    fi
     gaveup=$((gaveup+1))
     continue
   fi
