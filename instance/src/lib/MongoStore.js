@@ -6,11 +6,12 @@ const { pipeline } = require('stream/promises');
 const { GridFSBucket } = require('mongodb');
 
 class MongoStore {
-  constructor({ db, bucketName = 'wa_sessions', revisionsToKeep = 3, dataPath = './.wwebjs_auth/', idInstance = null }) {
+  constructor({ db, bucketName = 'wa_sessions', revisionsToKeep = 3, dailyKeepDays = 3, dataPath = './.wwebjs_auth/', idInstance = null }) {
     if (!db) throw new Error('MongoStore: db is required');
     this.db = db;
     this.bucket = new GridFSBucket(db, { bucketName });
     this.revisionsToKeep = revisionsToKeep;
+    this.dailyKeepDays = dailyKeepDays;
     this.dataPath = path.resolve(dataPath);
     this.idInstance = idInstance;
   }
@@ -55,8 +56,24 @@ class MongoStore {
       .sort({ uploadDate: -1 })
       .toArray();
 
-    const toDelete = all.slice(this.revisionsToKeep);
-    for (const file of toDelete) {
+    const keep = new Set(all.slice(0, this.revisionsToKeep).map((f) => String(f._id)));
+
+    // Tiered retention: besides the N rolling revisions, keep the newest
+    // revision of each of the last dailyKeepDays calendar days. Backups run
+    // every 60s and keep running while the page is sick, so the rolling
+    // revisions are all post-corruption within minutes — the daily tier is
+    // what preserves a restorable pre-incident session (2026-08 incident:
+    // every stored revision was from the sick period, forcing a QR re-link).
+    const byDay = new Map();
+    for (const f of all) {
+      const day = f.uploadDate.toISOString().slice(0, 10);
+      if (!byDay.has(day)) byDay.set(day, f); // list is newest-first
+    }
+    [...byDay.keys()].sort().reverse().slice(0, this.dailyKeepDays)
+      .forEach((day) => keep.add(String(byDay.get(day)._id)));
+
+    for (const file of all) {
+      if (keep.has(String(file._id))) continue;
       try {
         await this.bucket.delete(file._id);
       } catch {
