@@ -18,7 +18,9 @@ const { mapAckToGreen } = require('../lib/StateMap');
 // single bad chat costs one list entry instead of the whole endpoint.
 async function chatsPerChatFallback(ctx) {
   return ctx.client.pupPage.evaluate(async () => {
-    const models = window.Store.Chat.getModelsArray();
+    // Same collection access as WWebJS.getChats on our pinned commit —
+    // window.Store is gone since upstream 883d7e4.
+    const models = window.require('WAWebCollections').Chat.getModelsArray();
     const settled = await Promise.allSettled(models.map((c) => window.WWebJS.getChatModel(c)));
     return {
       chats: settled.filter((s) => s.status === 'fulfilled').map((s) => s.value),
