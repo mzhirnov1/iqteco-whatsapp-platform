@@ -45,10 +45,14 @@ final class InstancePool
         // Count anything in the pool that is not yet authorized and not deleted.
         // After container spins up the state goes auth_needed → starting → notAuthorized
         // (the latter is the Green-API mapping for "UNPAIRED" — container is alive,
-        // showing QR, just waiting for the user to scan).
+        // showing QR, just waiting for the user to scan). A slot then parks itself
+        // (stopped) rather than asking WhatsApp for a fresh QR every 20s for days —
+        // it is still a perfectly good warm slot, and claim() wakes it. Leaving
+        // stopped out of this count made the pool look permanently empty and had
+        // keepWarm build a new pair every tick until the IPv6 pool ran dry.
         $current = MongoClient::db($this->config)->selectCollection('instances')->countDocuments([
             'ownerId' => self::OWNER_TAG,
-            'state' => ['$in' => ['auth_needed', 'starting', 'notAuthorized']],
+            'state' => ['$in' => ['auth_needed', 'starting', 'notAuthorized', 'stopped']],
         ]);
         $target = $this->targetSize();
         $deficit = max(0, $target - $current);
@@ -153,7 +157,7 @@ final class InstancePool
         $result = $coll->findOneAndUpdate(
             [
                 'ownerId' => self::OWNER_TAG,
-                'state' => ['$in' => ['auth_needed', 'starting', 'notAuthorized']],
+                'state' => ['$in' => ['auth_needed', 'starting', 'notAuthorized', 'stopped']],
                 'lastQr' => ['$ne' => null],  // only claim instances that already have a QR ready
             ] + $typeFilter,
             [
@@ -212,7 +216,7 @@ final class InstancePool
         return [
             'warm' => $coll->countDocuments([
                 'ownerId' => self::OWNER_TAG,
-                'state' => ['$in' => ['auth_needed', 'starting', 'notAuthorized']],
+                'state' => ['$in' => ['auth_needed', 'starting', 'notAuthorized', 'stopped']],
                 'lastQr' => ['$ne' => null],
             ]),
             'starting' => $coll->countDocuments([
