@@ -39,11 +39,24 @@ class MongoSession(SQLiteSession):
 
         self._last_save_at = 0.0
         self._save_lock = threading.Lock()
+        # ВОССТАНОВЛЕНИЕ — СТРОГО ДО super().__init__: SQLiteSession в __init__
+        # открывает файл и читает auth_key в память; перезапись байтов на диске
+        # после этого бесполезна (соединение живёт со старым содержимым). Прежний
+        # порядок (init → load) давал двойной эффект: (а) init-save заливал пустую
+        # схему новейшей ревизией в GridFS, (б) load() восстанавливал её же —
+        # сессия гибла на КАЖДОМ пересоздании контейнера (инцидент 2026-08-10,
+        # tg-1101008402; вылечен именно этой перестановкой).
+        self._loaded = False
+        self._restore_from_gridfs()  # выставит _loaded, кроме сбоя Mongo (гард ниже)
 
         super().__init__(self._session_path)
 
     def load(self) -> None:
-        """Restore session file from GridFS if present (called before TelegramClient connect)."""
+        """Совместимость: реальное восстановление уже сделано в __init__."""
+        return
+
+    def _restore_from_gridfs(self) -> None:
+        """Restore session file from GridFS if present (BEFORE SQLite opens it)."""
         try:
             cursor = self._bucket.find({"filename": self._file_id}).sort("uploadDate", -1).limit(1)
             for f in cursor:
@@ -52,13 +65,19 @@ class MongoSession(SQLiteSession):
                 with open(self._session_path, "wb") as out:
                     out.write(buf.getvalue())
                 self._log.info("loaded tg session from GridFS size=%d", len(buf.getvalue()))
+                self._loaded = True
                 return
             self._log.info("no tg session in GridFS — fresh start")
+            self._loaded = True
         except PyMongoError as e:
-            self._log.warning("mongo session load failed: %s", e)
+            # НЕ включаем выгрузку: после сбоя load() аплоад пустой/чужой сессии
+            # затёр бы живую ревизию. Инстанс поработает без персиста до рестарта.
+            self._log.warning("mongo session load failed (uploads disabled): %s", e)
 
     def save(self) -> None:
         super().save()
+        if not self._loaded:
+            return
         now = time.time()
         if now - self._last_save_at < SAVE_DEBOUNCE_SECONDS:
             return
@@ -70,6 +89,8 @@ class MongoSession(SQLiteSession):
 
     def force_save(self) -> None:
         super().save()
+        if not self._loaded:
+            return
         try:
             self._upload_to_gridfs()
         except Exception as e:
