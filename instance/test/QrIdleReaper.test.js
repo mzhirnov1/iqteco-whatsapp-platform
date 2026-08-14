@@ -99,6 +99,7 @@ describe('QrIdleReaper', () => {
       }
       expect(calls.expired).toBe(0);
       reaper.noteQr();
+      await vi.advanceTimersByTimeAsync(0); // onExpire is dispatched as a microtask
       expect(calls.expired).toBe(1);
     });
 

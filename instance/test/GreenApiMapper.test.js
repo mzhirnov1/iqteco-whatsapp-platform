@@ -76,8 +76,10 @@ describe('GreenApiMapper.toIncomingMessageReceived', () => {
       _data: { mimetype: 'image/jpeg' },
     };
     const out = makeMapper({ mediaBaseUrl: 'https://api.wa.iqteco.com' }).toIncomingMessageReceived(msg);
+    // The extension is deliberate (a396ac5): B24 renders the image inline only
+    // when the URL ends in one.
     expect(out.messageData.imageMessageData.downloadUrl)
-      .toBe('https://api.wa.iqteco.com/waInstance1101000001/media/testtoken/true_X');
+      .toBe('https://api.wa.iqteco.com/waInstance1101000001/media/testtoken/true_X.jpg');
   });
 
   it('downloadUrl empty when mediaBaseUrl unset', () => {
