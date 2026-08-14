@@ -26,6 +26,14 @@ const config = {
   // Stop the container if nobody scans the QR within this window (0 = never stop).
   // Keeps unpaired instances from asking WhatsApp for a fresh QR every 20s forever.
   qrIdleTtlMs: Number(optional('QR_IDLE_TTL_MS', 600000)),
+  // Ceiling on the whole unpaired stretch (0 = disabled). The idle TTL above is
+  // re-armed by every session reset, so a reset loop faster than the TTL keeps an
+  // instance polling forever; this one counts from the first QR and only a real
+  // pairing clears it.
+  qrHardTtlMs: Number(optional('QR_HARD_TTL_MS', 1800000)),
+  // Smallest session archive we agree to store. A paired profile is tens of MB;
+  // near-empty blobs make sessionExists() lie about a restorable session.
+  sessionMinBytes: Number(optional('SESSION_MIN_BYTES', 65536)),
   // Pin the WhatsApp Web build instead of always loading the newest one. Empty
   // keeps the library default (latest), which is what breaks into qr_loop when
   // WhatsApp ships a build whatsapp-web.js does not understand yet.

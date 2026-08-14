@@ -6,7 +6,7 @@ const { pipeline } = require('stream/promises');
 const { GridFSBucket } = require('mongodb');
 
 class MongoStore {
-  constructor({ db, bucketName = 'wa_sessions', revisionsToKeep = 3, dailyKeepDays = 3, dataPath = './.wwebjs_auth/', idInstance = null }) {
+  constructor({ db, bucketName = 'wa_sessions', revisionsToKeep = 3, dailyKeepDays = 3, dataPath = './.wwebjs_auth/', idInstance = null, minSaveBytes = 65536, logger = null }) {
     if (!db) throw new Error('MongoStore: db is required');
     this.db = db;
     this.bucket = new GridFSBucket(db, { bucketName });
@@ -14,6 +14,13 @@ class MongoStore {
     this.dailyKeepDays = dailyKeepDays;
     this.dataPath = path.resolve(dataPath);
     this.idInstance = idInstance;
+    // A real paired profile zips to tens of megabytes. Anything near-empty is a
+    // backup taken against a profile that holds no session at all (2026-08:
+    // 1428-byte blobs written every minute by a leaked backupSync). Storing one
+    // is worse than storing nothing — sessionExists() then reports a session we
+    // cannot restore, which is what onQR's dead-session watchdog acts on.
+    this.minSaveBytes = Number(minSaveBytes) || 0;
+    this.logger = logger;
   }
 
   _filename(session) {
@@ -34,6 +41,14 @@ class MongoStore {
     }
 
     const stat = await fs.promises.stat(zipPath);
+
+    if (this.minSaveBytes && stat.size < this.minSaveBytes) {
+      this.logger?.warn?.(
+        { session, size: stat.size, minSaveBytes: this.minSaveBytes },
+        'MongoStore.save: refusing to store an empty-looking session',
+      );
+      return;
+    }
 
     await pipeline(
       fs.createReadStream(zipPath),

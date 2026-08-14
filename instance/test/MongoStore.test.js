@@ -30,7 +30,8 @@ runIfMongo('MongoStore (integration)', () => {
 
   beforeEach(async () => {
     await db.dropDatabase();
-    store = new MongoStore({ db, dataPath: tmpDir, idInstance: '1101000001' });
+    // Fixtures are a few bytes long; the empty-session guard is exercised separately.
+    store = new MongoStore({ db, dataPath: tmpDir, idInstance: '1101000001', minSaveBytes: 0 });
   });
 
   function writeZip(session, content = 'PK fake zip content') {
@@ -78,8 +79,25 @@ runIfMongo('MongoStore (integration)', () => {
     expect(await store.sessionExists({ session: 'RemoteAuth-test' })).toBe(false);
   });
 
+  // A backup taken against an unpaired profile zips to ~1.4KB. Stored, it makes
+  // sessionExists() report a session that cannot be restored — the trigger for
+  // onQR's dead-session watchdog, and the fuel of the 2026-08 reset loop.
+  it('refuses to store an empty-looking session', async () => {
+    const guarded = new MongoStore({ db, dataPath: tmpDir, idInstance: 'y', minSaveBytes: 65536 });
+    writeZip('RemoteAuth-empty', 'PK'.padEnd(1428, '\0'));
+    await guarded.save({ session: 'RemoteAuth-empty' });
+    expect(await guarded.sessionExists({ session: 'RemoteAuth-empty' })).toBe(false);
+  });
+
+  it('stores a session that clears the size floor', async () => {
+    const guarded = new MongoStore({ db, dataPath: tmpDir, idInstance: 'y', minSaveBytes: 1024 });
+    writeZip('RemoteAuth-real', 'x'.repeat(4096));
+    await guarded.save({ session: 'RemoteAuth-real' });
+    expect(await guarded.sessionExists({ session: 'RemoteAuth-real' })).toBe(true);
+  });
+
   it('keeps only last N revisions', async () => {
-    const storeN = new MongoStore({ db, dataPath: tmpDir, revisionsToKeep: 2, idInstance: 'x' });
+    const storeN = new MongoStore({ db, dataPath: tmpDir, revisionsToKeep: 2, idInstance: 'x', minSaveBytes: 0 });
     for (let i = 0; i < 5; i++) {
       writeZip('RemoteAuth-test', `v${i}`);
       await storeN.save({ session: 'RemoteAuth-test' });

@@ -86,4 +86,45 @@ describe('QrIdleReaper', () => {
       expect(calls.expired).toBe(0);
     }
   });
+
+  describe('hard deadline', () => {
+    // The 2026-08 livelock: a resetSession firing faster than ttlMs re-armed the
+    // reaper every time, so the instance polled WhatsApp for two days straight.
+    it('fires even when a reset loop keeps re-arming the idle timer', async () => {
+      const { reaper, calls } = makeReaper({ hardTtlMs: 5000 });
+      for (let elapsed = 0; elapsed < 5000; elapsed += 500) {
+        reaper.noteQr();
+        await vi.advanceTimersByTimeAsync(500);
+        reaper.reset(); // what resetSession does, faster than the 1000ms TTL
+      }
+      expect(calls.expired).toBe(0);
+      reaper.noteQr();
+      expect(calls.expired).toBe(1);
+    });
+
+    it('a successful pairing clears the deadline, so a later unlink gets a full window', async () => {
+      const { reaper, calls } = makeReaper({ ttlMs: 100000, hardTtlMs: 5000 });
+      reaper.noteQr();
+      await vi.advanceTimersByTimeAsync(4900);
+      reaper.noteScanned();
+      await vi.advanceTimersByTimeAsync(60000); // paired and working
+      reaper.reset();
+      reaper.noteQr();                          // unlinked, back to the QR screen
+      expect(calls.expired).toBe(0);
+      await vi.advanceTimersByTimeAsync(4900);
+      reaper.reset();
+      reaper.noteQr();
+      expect(calls.expired).toBe(0);            // 4.9s into the NEW window, not 9.8s
+    });
+
+    it('is disabled when hardTtlMs is not set', async () => {
+      const { reaper, calls } = makeReaper({ ttlMs: 1000 });
+      for (let i = 0; i < 20; i++) {
+        reaper.noteQr();
+        await vi.advanceTimersByTimeAsync(500);
+        reaper.reset();
+      }
+      expect(calls.expired).toBe(0);
+    });
+  });
 });

@@ -1,5 +1,7 @@
 'use strict';
 
+const fsp = require('fs/promises');
+const path = require('path');
 const { Client, RemoteAuth } = require('whatsapp-web.js');
 
 // Must line up with the Chromium actually shipped in the image (120, Debian).
@@ -13,6 +15,77 @@ const DEFAULT_USER_AGENT =
 // wppconnect-team/wa-version mirrors released WhatsApp Web builds as HTML.
 const WA_VERSION_MIRROR = 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html';
 
+/**
+ * Copy a tree the way a live Chromium profile demands: leveldb compacts while we
+ * read, so files and directories appear and vanish mid-walk. fs.cp() (what
+ * RemoteAuth uses) plans the whole copy up front and then throws ENOENT on a file
+ * that got compacted away, or EEXIST on a directory that appeared — aborting the
+ * backup and surfacing as unhandledRejection. Skipping the raced entry is correct:
+ * leveldb replays its remaining log on open.
+ */
+async function copyTreeTolerant(src, dest) {
+  let entries;
+  try {
+    entries = await fsp.readdir(src, { withFileTypes: true });
+  } catch (err) {
+    if (err.code === 'ENOENT') return; // directory compacted away under us
+    throw err;
+  }
+  await fsp.mkdir(dest, { recursive: true }); // recursive:true is already EEXIST-safe
+  for (const entry of entries) {
+    const from = path.join(src, entry.name);
+    const to = path.join(dest, entry.name);
+    try {
+      if (entry.isDirectory()) await copyTreeTolerant(from, to);
+      // Sockets and lock files in a live profile are not copyable and not needed.
+      else if (entry.isFile()) await fsp.copyFile(from, to);
+    } catch (err) {
+      if (err.code === 'ENOENT' || err.code === 'EEXIST') continue;
+      throw err;
+    }
+  }
+}
+
+/**
+ * RemoteAuth that (a) survives the live-profile copy above and (b) refuses to
+ * back up a session that is not actually paired.
+ *
+ * (b) is what breaks the QR-loop livelock of 2026-08: a leaked backupSync from a
+ * half-destroyed client kept compressing an EMPTY profile and storing it as a
+ * ~1.4KB blob. onQR's watchdog reads "a stored session exists while we are still
+ * on the QR screen" as a dead session being restored in a loop, so it reset the
+ * session — which re-armed the QR idle reaper — every ~3 minutes, forever. The
+ * instance never stopped, and nobody could pair it either: each reset killed the
+ * browser and voided the Conn.ref while the UI still showed the old QR image.
+ */
+class ResilientRemoteAuth extends RemoteAuth {
+  constructor({ canBackup, logger, ...options }) {
+    super(options);
+    this.canBackup = typeof canBackup === 'function' ? canBackup : () => true;
+    this.log = logger || console;
+  }
+
+  async copyByRequiredDirs(from, to) {
+    for (const dir of this.requiredDirs) {
+      await copyTreeTolerant(path.join(from, dir), path.join(to, dir));
+    }
+  }
+
+  async storeRemoteSession(options) {
+    if (!this.canBackup()) {
+      this.log.debug?.({ session: this.sessionName }, 'session backup skipped — not paired');
+      return;
+    }
+    // The library calls this from a bare setInterval with no catch, so anything
+    // thrown here lands as unhandledRejection instead of a diagnosable warning.
+    try {
+      return await super.storeRemoteSession(options);
+    } catch (err) {
+      this.log.warn({ err: err.message, session: this.sessionName }, 'session backup failed');
+    }
+  }
+}
+
 function createClient({
   store,
   idInstance,
@@ -20,11 +93,15 @@ function createClient({
   executablePath,
   waWebVersion = '',
   userAgent = DEFAULT_USER_AGENT,
+  canBackup,
+  logger,
 }) {
-  const authStrategy = new RemoteAuth({
+  const authStrategy = new ResilientRemoteAuth({
     store,
     clientId: String(idInstance),
     backupSyncIntervalMs,
+    canBackup,
+    logger,
   });
 
   const puppeteer = {
@@ -75,4 +152,4 @@ function createClient({
   return new Client(options);
 }
 
-module.exports = { createClient };
+module.exports = { createClient, copyTreeTolerant, ResilientRemoteAuth };

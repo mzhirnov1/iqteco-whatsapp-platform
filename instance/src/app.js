@@ -68,7 +68,13 @@ async function main() {
   }
 
   // 3. Session store
-  const store = new MongoStore({ db, idInstance: config.idInstance, dataPath: './.wwebjs_auth/' });
+  const store = new MongoStore({
+    db,
+    idInstance: config.idInstance,
+    dataPath: './.wwebjs_auth/',
+    minSaveBytes: config.sessionMinBytes,
+    logger,
+  });
 
   // 3b. Media (Wasabi S3) + message stores
   const s3 = makeS3Client(config.s3);
@@ -109,7 +115,20 @@ async function main() {
   const outgoingApiIds = new Set();
 
   // 6. WhatsApp client
-  let client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs, waWebVersion: config.waWebVersion });
+  function spawnClient() {
+    return createClient({
+      store,
+      idInstance: config.idInstance,
+      backupSyncIntervalMs: config.backupIntervalMs,
+      waWebVersion: config.waWebVersion,
+      // Only a paired client has a session worth storing. Without this gate a
+      // backup taken between pairings writes an empty archive, and an empty
+      // archive is what onQR's watchdog mistakes for a dead session to reset.
+      canBackup: () => state.authorized,
+      logger,
+    });
+  }
+  let client = spawnClient();
 
   const ctx = {
     config, logger, db, adminClient, adminConfig, webhookSender, mapper,
@@ -179,6 +198,7 @@ async function main() {
   // platform starts it again the moment someone asks to see the QR.
   const qrReaper = new QrIdleReaper({
     ttlMs: config.qrIdleTtlMs,
+    hardTtlMs: config.qrHardTtlMs,
     logger,
     onExpire: async () => {
       try {
@@ -241,7 +261,7 @@ async function main() {
     server.close();
     try { await webhookSender.drain(3000); } catch {}
     try { await webhookSender.stop(); } catch {}
-    try { await client.destroy(); } catch {}
+    await disposeClient(client, 'shutdown');
     try { await mongo.close(); } catch {}
     logger.info('shutdown complete');
     process.exit(0);
@@ -305,19 +325,34 @@ async function main() {
       }
     }
   }
+  // Retire a client for good. Client.destroy() runs `await browser.close()` BEFORE
+  // `authStrategy.destroy()`, so the common 'Target closed' throw skips the
+  // clearInterval and leaves RemoteAuth's backupSync ticking against a client
+  // nobody owns any more. Those orphans are what kept re-creating the empty
+  // session blob (2026-08) and what made one 'authenticated' arrive four times.
+  // Kill the interval and the listeners explicitly, never trusting destroy().
+  async function disposeClient(prev, tag) {
+    if (!prev) return;
+    try { await prev.destroy(); }
+    catch (err) { logger.warn({ err: err.message }, tag + ': destroy failed'); }
+    try { await prev.authStrategy?.destroy?.(); }
+    catch (err) { logger.warn({ err: err.message }, tag + ': authStrategy.destroy failed'); }
+    // A browser that survived destroy() holds leveldb locks, so cleanLocalSession's
+    // rm fails and the corrupt profile outlives the reset.
+    try {
+      const proc = prev.pupBrowser && typeof prev.pupBrowser.process === 'function'
+        ? prev.pupBrowser.process() : null;
+      if (proc && !proc.killed) { proc.kill('SIGKILL'); logger.warn(tag + ': SIGKILL stray browser'); }
+    } catch (err) { logger.warn({ err: err.message }, tag + ': browser kill failed'); }
+    try { prev.removeAllListeners(); } catch { /* ignore */ }
+  }
+
   async function resetSession(reason) {
     const now = Date.now();
     if (now - _lastResetAt < 120000) { logger.warn({ reason }, 'resetSession skipped (debounced)'); return; }
     _lastResetAt = now;
     logger.warn({ reason }, 'resetSession: clearing dead session');
-    try { await client.destroy(); } catch (err) { logger.warn({ err: err.message }, 'resetSession: destroy failed'); }
-    // destroy() can leave the Chromium process alive ('Target closed'), holding leveldb
-    // file locks so cleanLocalSession's rm fails and the corrupt profile survives. Force-kill it.
-    try {
-      const proc = client && client.pupBrowser && typeof client.pupBrowser.process === 'function'
-        ? client.pupBrowser.process() : null;
-      if (proc && !proc.killed) { proc.kill('SIGKILL'); logger.warn('resetSession: SIGKILL stray browser'); }
-    } catch (err) { logger.warn({ err: err.message }, 'resetSession: browser kill failed'); }
+    await disposeClient(client, 'resetSession');
     try { await store.delete({ session: 'RemoteAuth-' + config.idInstance }); }
     catch (err) { logger.warn({ err: err.message }, 'resetSession: store.delete failed'); }
     await cleanLocalSession();
@@ -328,22 +363,18 @@ async function main() {
     // Back to square one: the next QR must start a fresh idle countdown, or a
     // once-paired instance would keep emitting QRs forever after being unlinked.
     qrReaper.reset();
-    client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs, waWebVersion: config.waWebVersion });
+    client = spawnClient();
     attachEvents();
     try { await client.initialize(); } catch (err) { logger.error({ err: err.message }, 'resetSession: re-initialize failed'); }
   }
 
   async function rebootClient(reason) {
     logger.warn({ reason }, 'reboot triggered');
-    try {
-      await client.destroy();
-    } catch (err) {
-      logger.warn({ err: err.message }, 'reboot: destroy failed');
-    }
+    await disposeClient(client, 'reboot');
     // A reboot that lands back on the QR screen means the session did not
     // survive; restart the countdown so it cannot idle there indefinitely.
     qrReaper.reset();
-    client = createClient({ store, idInstance: config.idInstance, backupSyncIntervalMs: config.backupIntervalMs, waWebVersion: config.waWebVersion });
+    client = spawnClient();
     attachEvents();
     try {
       await client.initialize();
