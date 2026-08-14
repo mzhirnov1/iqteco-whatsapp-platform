@@ -79,12 +79,13 @@ runIfMongo('MongoStore (integration)', () => {
     expect(await store.sessionExists({ session: 'RemoteAuth-test' })).toBe(false);
   });
 
-  // A backup taken against an unpaired profile zips to ~1.4KB. Stored, it makes
-  // sessionExists() report a session that cannot be restored — the trigger for
-  // onQR's dead-session watchdog, and the fuel of the 2026-08 reset loop.
-  it('refuses to store an empty-looking session', async () => {
-    const guarded = new MongoStore({ db, dataPath: tmpDir, idInstance: 'y', minSaveBytes: 65536 });
-    writeZip('RemoteAuth-empty', 'PK'.padEnd(1428, '\0'));
+  // A backup taken against an unpaired profile zips to anywhere between 1.4KB
+  // and 128KB (both seen in production). Stored, it makes sessionExists() report
+  // a session that cannot be restored — the trigger for onQR's dead-session
+  // watchdog, and the fuel of the 2026-08 reset loop.
+  it.each([1428, 131072])('refuses to store a %i-byte session', async (size) => {
+    const guarded = new MongoStore({ db, dataPath: tmpDir, idInstance: 'y' }); // default floor
+    writeZip('RemoteAuth-empty', 'P'.repeat(size));
     await guarded.save({ session: 'RemoteAuth-empty' });
     expect(await guarded.sessionExists({ session: 'RemoteAuth-empty' })).toBe(false);
   });

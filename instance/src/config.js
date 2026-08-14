@@ -32,8 +32,9 @@ const config = {
   // pairing clears it.
   qrHardTtlMs: Number(optional('QR_HARD_TTL_MS', 1800000)),
   // Smallest session archive we agree to store. A paired profile is tens of MB;
-  // near-empty blobs make sessionExists() lie about a restorable session.
-  sessionMinBytes: Number(optional('SESSION_MIN_BYTES', 65536)),
+  // observed junk backups ran 1.4KB-128KB, so the floor sits at 1MB — the same
+  // threshold wa-rolling-update.sh uses to decide a session is restorable.
+  sessionMinBytes: Number(optional('SESSION_MIN_BYTES', 1048576)),
   // Pin the WhatsApp Web build instead of always loading the newest one. Empty
   // keeps the library default (latest), which is what breaks into qr_loop when
   // WhatsApp ships a build whatsapp-web.js does not understand yet.

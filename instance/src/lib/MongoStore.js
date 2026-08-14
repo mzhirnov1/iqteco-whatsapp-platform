@@ -6,7 +6,7 @@ const { pipeline } = require('stream/promises');
 const { GridFSBucket } = require('mongodb');
 
 class MongoStore {
-  constructor({ db, bucketName = 'wa_sessions', revisionsToKeep = 3, dailyKeepDays = 3, dataPath = './.wwebjs_auth/', idInstance = null, minSaveBytes = 65536, logger = null }) {
+  constructor({ db, bucketName = 'wa_sessions', revisionsToKeep = 3, dailyKeepDays = 3, dataPath = './.wwebjs_auth/', idInstance = null, minSaveBytes = 1048576, logger = null }) {
     if (!db) throw new Error('MongoStore: db is required');
     this.db = db;
     this.bucket = new GridFSBucket(db, { bucketName });
@@ -14,11 +14,14 @@ class MongoStore {
     this.dailyKeepDays = dailyKeepDays;
     this.dataPath = path.resolve(dataPath);
     this.idInstance = idInstance;
-    // A real paired profile zips to tens of megabytes. Anything near-empty is a
-    // backup taken against a profile that holds no session at all (2026-08:
-    // 1428-byte blobs written every minute by a leaked backupSync). Storing one
-    // is worse than storing nothing — sessionExists() then reports a session we
-    // cannot restore, which is what onQR's dead-session watchdog acts on.
+    // A real paired profile zips to tens of megabytes (39-66MB in production).
+    // Anything smaller is a backup taken against a profile that holds no session
+    // at all — the 2026-08 leak wrote 1.4KB blobs on one instance and 128KB on
+    // another, so the floor has to sit well above both. 1MB matches what
+    // wa-rolling-update.sh already refuses to treat as a restorable session.
+    // Storing such a blob is worse than storing nothing: sessionExists() then
+    // reports a session we cannot restore, which is what onQR's dead-session
+    // watchdog acts on.
     this.minSaveBytes = Number(minSaveBytes) || 0;
     this.logger = logger;
   }
