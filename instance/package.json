@@ -22,7 +22,7 @@
     "pino": "^9.5.0",
     "qrcode": "^1.5.4",
     "undici": "^6.21.0",
-    "whatsapp-web.js": "github:wwebjs/whatsapp-web.js#2dc9466facb027caee19dbf285e0a2763f5373bb"
+    "whatsapp-web.js": "github:wwebjs/whatsapp-web.js#942d236a11ad68807308b058303ba5256915979c"
   },
   "devDependencies": {
     "vitest": "^2.1.5"
