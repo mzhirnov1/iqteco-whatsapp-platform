@@ -38,21 +38,34 @@ async function resolveJid(client, chatId) {
   }
 
   // Try phone-number resolution first (returns proper c.us / lid serialized).
+  // A THROW here is not an answer: when the WA Web Store is broken (the same
+  // failure that makes getChats blow up) every lookup throws, and treating that
+  // as "number not on WhatsApp" silently drops the reply. Remember which
+  // lookups actually answered.
+  let lookupsAnswered = true;
   try {
     const wid = await client.getNumberId(digits);
     if (wid) return { ok: true, jid: wid._serialized };
   } catch (err) {
-    // fall through to LID fallback
+    lookupsAnswered = false;
   }
 
-  // Fallback: if Bitrix24 stored a LID as the connector user.id (because
-  // our incoming webhook surfaced it as @c.us), retry as @lid. wweb.js
-  // can route messages straight to LID jids when the chat exists.
+  // Fallback: if a consumer stored a LID as the chat id (because our incoming
+  // webhook surfaced it as @c.us), retry as @lid. wweb.js can route messages
+  // straight to LID jids when the chat exists.
   const lidJid = digits + '@lid';
   try {
-    const chat = await client.getChatById(lidJid).catch(() => null);
+    const chat = await client.getChatById(lidJid);
     if (chat) return { ok: true, jid: lidJid };
-  } catch (err) { /* ignore */ }
+  } catch (err) {
+    lookupsAnswered = false;
+  }
+
+  // Nothing answered — send to the LID jid and let sendMessage report the real
+  // error. On 2026-08-29 a customer's reply was dropped here as
+  // "not_on_whatsapp" while the chat was alive and the Store was the thing
+  // that was broken.
+  if (!lookupsAnswered) return { ok: true, jid: lidJid, uncertain: true };
 
   return { ok: false, reason: 'not_on_whatsapp' };
 }
