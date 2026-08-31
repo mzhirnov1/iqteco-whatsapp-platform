@@ -5,7 +5,7 @@ const { mapWAStateToGreen } = require('./StateMap');
 const STALE_STATES = new Set(['CONFLICT', 'TIMEOUT', 'UNLAUNCHED']);
 
 class Heartbeat {
-  constructor({ getClient, client, adminClient, logger, intervalMs = 30000, onConflict, maxStaleReboots = 5 }) {
+  constructor({ getClient, client, adminClient, logger, intervalMs = 30000, onConflict, onConnectedNotReady, maxStaleReboots = 5 }) {
     if (typeof getClient === 'function') {
       this.getClient = getClient;
     } else if (client) {
@@ -17,6 +17,12 @@ class Heartbeat {
     this.logger = logger || console;
     this.intervalMs = intervalMs;
     this.onConflict = onConflict || (() => {});
+    // wweb.js 942d236 may swallow the 'ready' event on a RemoteAuth restore
+    // (its duplicate-ready guard arms during the post-login SPA navigation).
+    // The session is CONNECTED, but ctx.state.authorized never flips, and every
+    // API route answers 466. The heartbeat already polls the true state each tick,
+    // so it is the natural place to notice "connected but not marked ready".
+    this.onConnectedNotReady = onConnectedNotReady || null;
     // Circuit breaker: a logged-out / corrupt session is NOT fixable by more
     // reboots — it needs a manual QR re-scan. Past this many consecutive
     // stale-state reboots we STOP calling onConflict and just keep
@@ -84,6 +90,10 @@ class Heartbeat {
         }
         this._staleReboots = 0;
         this._parked = false;
+        if (state === 'CONNECTED' && this.onConnectedNotReady) {
+          try { await this.onConnectedNotReady(); }
+          catch (err) { this.logger.warn({ err: err?.message }, 'Heartbeat: onConnectedNotReady failed'); }
+        }
       }
     } catch (err) {
       this.logger.error({ err: err.message }, 'Heartbeat: tick error');

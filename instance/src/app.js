@@ -190,6 +190,14 @@ async function main() {
     adminClient,
     logger,
     onConflict: () => rebootClient('heartbeat_conflict'),
+    // Сессия жива (CONNECTED), а 'ready' так и не пришёл — новый wweb.js
+    // умеет проглатывать его на RemoteAuth-восстановлении. Достраиваем сами:
+    // без этого каждый маршрут отвечает 466 при честно работающем WhatsApp.
+    onConnectedNotReady: async () => {
+      if (state.authorized || !ctx.handleReady) return;
+      logger.warn('Heartbeat: CONNECTED but ready never fired — invoking onReady by hand');
+      await ctx.handleReady();
+    },
   });
   heartbeat.start();
 
@@ -272,6 +280,7 @@ async function main() {
   function attachEvents() {
     const handleQr = onQR(ctx);
     const handleReady = onReady(ctx);
+    ctx.handleReady = handleReady; // heartbeat достраивает пропущенный 'ready'
     client.on('qr', (qr) => { qrReaper.noteQr(); return handleQr(qr); });
     client.on('code', onCode(ctx));
     client.on('ready', (...args) => { qrReaper.noteScanned(); return handleReady(...args); });
