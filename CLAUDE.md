@@ -95,6 +95,35 @@ npx -y @redocly/cli@latest lint docs/openapi.yaml
 `docs/API.md` — narrative-обзор, не источник истины. При расхождении
 спека выигрывает. Импорт в Postman: `File → Import → docs/openapi.yaml`.
 
+## wweb.js: пин 942d236, проглоченный ready и аватары (31.08.2026)
+
+Три поломки одного дня, все — рассинхрон с живой WA Web:
+
+- **Свежие QR-привязки падали с LOGOUT** через минуты после скана (963954240820,
+  79991635928 ×2): WA Web делает SPA-навигацию после логина, старый пин 2dc9466
+  инжектился повторно (шесть `client authenticated` подряд) — WhatsApp отвечал
+  LOGOUT. Лечится апстримом `1780711 prevent duplicate ready events on SPA
+  re-injection`; пин поднят до `942d236`. Восстановленные сессии не падали —
+  только новые привязки.
+- **На RemoteAuth-восстановлении новый пин глотает `ready`**: сессия CONNECTED,
+  а `ctx.state.authorized` не взводится — каждый маршрут отвечает 466, и бэкап
+  не пишется (`canBackup` смотрит на этот флаг), так что со временем сессия
+  обречена. Достройка — в Heartbeat (`onConnectedNotReady`): CONNECTED без
+  ready → вызываем onReady сами. В логе это `Heartbeat: CONNECTED but ready
+  never fired — invoking onReady by hand`.
+- **`client.getProfilePicUrl` бросает минифицированное «r» на любом чате**
+  (WA Web убрал WAWebContactProfilePicThumbBridge) — инбокс CRM остался без
+  аватаров. Фолбэк в `routes/getAvatar.js` повторяет несмерженный wwebjs PR
+  #201880 (ProfilePicThumb: get, затем find); выкинуть после мержа.
+
+Грабли деплоя: `wa-rolling-update.sh --build` делает pre-flight ДО сборки —
+упавший pre-flight означает, что образ НЕ пересобрался, хотя `--build` стоял.
+Долгую сборку запускать `systemd-run --unit ... podman build ...` (переживает
+обрыв ssh), катить затем `wa-recover.php <id>` — сессии восстанавливаются из
+GridFS-бэкапа. Полный sha для пина брать из
+`api.github.com/repos/wwebjs/whatsapp-web.js/commits/<short>` — дописанный
+руками хвост тихо превращается в 404 + фолбэк npm на ssh-clone.
+
 ## LID: сломанная сессия — не «номера нет в WhatsApp»
 
 `instance/src/lib/jid.js` резолвит адрес перед отправкой: сначала `getNumberId`,
