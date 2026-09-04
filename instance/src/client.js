@@ -90,6 +90,20 @@ class ResilientRemoteAuth extends RemoteAuth {
     }
   }
 
+  /**
+   * Restore the profile through the zip's central directory instead of the
+   * library's streaming `unzipper.Extract`. The stream parser died with
+   * "unexpected end of file" on a 104MB backup of 1101008511 that python's
+   * zipfile and `unzipper.Open.file` both read in full (04.09.2026) — the
+   * instance then looped reboot → extract → crash without ever showing a QR.
+   */
+  async unCompressSession(compressedSessionPath) {
+    const unzipper = require('unzipper');
+    const archive = await unzipper.Open.file(compressedSessionPath);
+    await archive.extract({ path: this.userDataDir, concurrency: 10 });
+    await fsp.unlink(compressedSessionPath);
+  }
+
   async storeRemoteSession(options) {
     if (!this.canBackup()) {
       this.log.debug?.({ session: this.sessionName }, 'session backup skipped — not paired');

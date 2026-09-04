@@ -196,3 +196,13 @@ WhatsApp Web, то есть решение WhatsApp, а причина видн�
   за ~25 с (Chromium 120 — ~12 с).
 - Прокатка 04.09.2026: 479, 583, 595 на новом образе, `authorized`, `getChats` 200;
   511 (не авторизован) пересоздан для QR на новом образе.
+- **Восстановление сессии через центральный каталог zip.** Потоковый `unzipper.Extract`
+  wweb.js падал «unexpected end of file» на валидном 104 МБ бэкапе 1101008511 (python
+  `zipfile` и `unzipper.Open.file` читают его целиком) — инстанс крутился reboot → extract
+  → crash и не показывал QR. `ResilientRemoteAuth.unCompressSession` теперь извлекает через
+  `unzipper.Open.file(...).extract()`; `unzipper` добавлен прямой зависимостью.
+- **Медиа не сохраняются с 01.07.2026** (найдено при проверке, к образу отношения не имеет):
+  в S3 под `media/` последний объект WhatsApp-инстанса — `1101008371` от 01.07; у всех
+  живых инстансов `onMessage: media download failed err:"r"` на каждом медиа, вебхук уходит
+  с `downloadUrl`, по которой 404. Отдельный инцидент, требует разбора `msg.downloadMedia()`
+  в странице.

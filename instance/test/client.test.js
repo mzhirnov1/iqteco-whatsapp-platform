@@ -125,3 +125,39 @@ describe('ResilientRemoteAuth', () => {
     );
   });
 });
+
+describe('ResilientRemoteAuth.unCompressSession', () => {
+  let tmp;
+  beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-unzip-')); });
+  afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  // The library streams the zip through unzipper.Extract, which raised
+  // "unexpected end of file" on a valid 104MB backup; extraction via the central
+  // directory (unzipper.Open) reads the same archive in full.
+  it('restores every file of an archiver-built backup and removes the zip', async () => {
+    const archiver = require('archiver');
+    const src = path.join(tmp, 'stage', 'Default', 'IndexedDB');
+    fs.mkdirSync(src, { recursive: true });
+    fs.writeFileSync(path.join(src, 'CURRENT'), 'MANIFEST-000001\n');
+    fs.writeFileSync(path.join(src, 'big.ldb'), Buffer.alloc(300 * 1024, 7));
+    const zipPath = path.join(tmp, 'RemoteAuth-1.zip');
+    await new Promise((resolve, reject) => {
+      const out = fs.createWriteStream(zipPath);
+      const archive = archiver('zip');
+      out.once('close', resolve); out.once('error', reject); archive.once('error', reject);
+      archive.pipe(out); archive.directory(path.join(tmp, 'stage'), false); archive.finalize();
+    });
+
+    const auth = new ResilientRemoteAuth({
+      store: { sessionExists: async () => true, save: async () => {}, extract: async () => {}, delete: async () => {} },
+      clientId: '1', backupSyncIntervalMs: 60000, logger: silentLogger,
+    });
+    auth.userDataDir = path.join(tmp, 'profile');
+
+    await auth.unCompressSession(zipPath);
+
+    expect(fs.readFileSync(path.join(tmp, 'profile', 'Default', 'IndexedDB', 'CURRENT'), 'utf8')).toBe('MANIFEST-000001\n');
+    expect(fs.statSync(path.join(tmp, 'profile', 'Default', 'IndexedDB', 'big.ldb')).size).toBe(300 * 1024);
+    expect(fs.existsSync(zipPath)).toBe(false);
+  });
+});
