@@ -94,12 +94,20 @@ verify_instance() { # $1=id $2=pre_state -> 0 ok / 1 fail; prints reason on fail
     sleep 5
   done
 
-  # the incident check: authorized is not enough, the read side must work
-  code=$(curl -s -m 60 -o /dev/null -w '%{http_code}' "$API_BASE/waInstance$id/getChats/$tok" 2>/dev/null)
-  case "$code" in
-    2*) return 0 ;;
-    *)  echo "getChats HTTP $code after recreate"; return 1 ;;
-  esac
+  # the incident check: authorized is not enough, the read side must work.
+  # getStateInstance flips to authorized a couple of seconds before the routes
+  # do (466 until onReady sets the flag) — 04.09.2026 that race failed a healthy
+  # canary 18s after recreate. Give the read side a minute to catch up.
+  local attempt=0
+  while :; do
+    code=$(curl -s -m 60 -o /dev/null -w '%{http_code}' "$API_BASE/waInstance$id/getChats/$tok" 2>/dev/null)
+    case "$code" in
+      2*) return 0 ;;
+    esac
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 6 ]; then echo "getChats HTTP $code after recreate"; return 1; fi
+    sleep 10
+  done
 }
 
 # ---- plan ----------------------------------------------------------------

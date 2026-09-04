@@ -181,3 +181,18 @@ WhatsApp Web, то есть решение WhatsApp, а причина видн�
   `chromium --version` при старте (`detectChromeMajor` в `client.js`), чтобы заголовок
   не отставал от бинарника, как отставал год.
 - Тесты: `cd instance && npm ci && npx vitest run` (`test/PageForensics.test.js`).
+
+### Хвосты того же дня
+
+- **Достроенный по heartbeat `ready` не запускал бэкап.** Проглоченный `ready` пропускает
+  `authStrategy.afterAuthReady()` — единственное место, где RemoteAuth заводит интервал
+  бэкапа. 1101008595 после рестарта 45 минут был `authorized` без единого нового блоба;
+  следующий рецикл вернул бы снимок до рестарта. Теперь `onConnectedNotReady` после
+  `handleReady()` зовёт `afterAuthReady()` сам, если `auth.backupSync` пуст
+  (в логе `Heartbeat: starting RemoteAuth backup sync by hand`).
+- **`wa-rolling-update.sh` срывался на здоровой канарейке:** `getStateInstance` отдаёт
+  `authorized` на пару секунд раньше, чем маршруты перестают отвечать 466. Проверка
+  `getChats` теперь повторяется до минуты. На Chromium 152 контейнер доходит до `ready`
+  за ~25 с (Chromium 120 — ~12 с).
+- Прокатка 04.09.2026: 479, 583, 595 на новом образе, `authorized`, `getChats` 200;
+  511 (не авторизован) пересоздан для QR на новом образе.
