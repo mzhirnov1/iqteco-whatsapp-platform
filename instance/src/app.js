@@ -212,6 +212,15 @@ async function main() {
       if (state.authorized || !ctx.handleReady) return;
       logger.warn('Heartbeat: CONNECTED but ready never fired — invoking onReady by hand');
       await ctx.handleReady();
+      // The swallowed 'ready' also skips wweb.js's authStrategy.afterAuthReady(),
+      // which is what starts RemoteAuth's backup interval. Without it a restored
+      // session never backs up again: 1101008595 ran 45 minutes authorized with
+      // its newest blob predating the restart (04.09.2026). Start it ourselves.
+      const auth = client.authStrategy;
+      if (auth && !auth.backupSync && typeof auth.afterAuthReady === 'function') {
+        logger.warn('Heartbeat: starting RemoteAuth backup sync by hand');
+        auth.afterAuthReady().catch((err) => logger.warn({ err: err?.message }, 'Heartbeat: afterAuthReady failed'));
+      }
     },
   });
   heartbeat.start();
