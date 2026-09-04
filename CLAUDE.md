@@ -156,3 +156,28 @@ curl -sS "https://api.wa.iqteco.com/waInstance1101000001/getStateInstance/$TOKEN
 # Логи контейнера
 podman logs --tail 50 wa-1101000001
 ```
+
+## Чёрный ящик страницы и Chromium из bookworm (04.09.2026)
+
+Свежие привязки гибнут через 1–6 минут после скана с голым `disconnected: LOGOUT`
+(30.08–04.09: 13 из 20 первых привязок, включая тест менеджера с российским номером;
+восстановленные сессии не страдают). `LOGOUT` в wweb.js — это `Cmd.logout` самого
+WhatsApp Web, то есть решение WhatsApp, а причина видна только внутри страницы.
+
+- `instance/src/lib/PageForensics.js` — кольцевой буфер (консоль страницы, `pageerror`,
+  `requestfailed`, навигации main-frame) плюс хуки внутри WA Web через
+  `evalOnNewDoc` wweb.js (переживают SPA-навигации): `Socket.state/stream/hasSynced`,
+  `Stream.mode/info`, аргументы `Cmd.logout` / `logout_from_bridge`. После
+  `authenticated`/`ready` 15 минут снимается скриншот раз в 5 с (держим два последних).
+- `onDisconnected` (LOGOUT/UNPAIRED) и `onAuthFailure` зовут `forensics.dump()` **до**
+  `resetSession` — потом страницы уже нет. Дамп: в лог (`forensics: dump`, хвост 120
+  событий, состояние сокета, `bodyText` страницы) и в Mongo `iqteco_wa.forensics`
+  (TTL 7 дней, скриншоты `shots[].jpeg` как Binary). Смотреть:
+  `db.forensics.find({idInstance:'…'},{shots:0}).sort({at:-1})`, картинку вытащить
+  `mongosh --eval` + `Buffer.from(doc.shots[0].jpeg.buffer)` в файл.
+- Env: `FORENSICS_WINDOW_MS` (900000), `FORENSICS_SHOT_INTERVAL_MS` (5000).
+- Образ переведён на `node:20-bookworm-slim`: в bullseye chromium заморожен на 120
+  (декабрь 2023), а WA Web выпускает сборку каждый день. User-Agent теперь берётся из
+  `chromium --version` при старте (`detectChromeMajor` в `client.js`), чтобы заголовок
+  не отставал от бинарника, как отставал год.
+- Тесты: `cd instance && npm ci && npx vitest run` (`test/PageForensics.test.js`).

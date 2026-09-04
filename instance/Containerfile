@@ -1,5 +1,9 @@
 # syntax=docker/dockerfile:1
-FROM node:18-bullseye-slim
+# bookworm: bullseye's chromium is frozen at 120 (Dec 2023) while WhatsApp Web
+# ships a new build every day — fresh pairings were being logged out minutes
+# after the scan. bookworm tracks current Chromium through security updates.
+# Node 20: 18 is EOL and the AWS SDK warns about it on every start.
+FROM node:20-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \

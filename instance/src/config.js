@@ -39,6 +39,10 @@ const config = {
   // keeps the library default (latest), which is what breaks into qr_loop when
   // WhatsApp ships a build whatsapp-web.js does not understand yet.
   waWebVersion: optional('WA_WEB_VERSION', ''),
+  // Page flight recorder (lib/PageForensics): how long after a pairing to keep
+  // taking screenshots, and how often. The console/state ring buffer runs always.
+  forensicsWindowMs: Number(optional('FORENSICS_WINDOW_MS', 900000)),
+  forensicsShotIntervalMs: Number(optional('FORENSICS_SHOT_INTERVAL_MS', 5000)),
   httpPort: Number(optional('HTTP_PORT', 8080)),
   version: optional('npm_package_version', '0.1.0'),
   mediaBaseUrl: optional('MEDIA_BASE_URL', ''),

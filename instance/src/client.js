@@ -2,15 +2,34 @@
 
 const fsp = require('fs/promises');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { Client, RemoteAuth } = require('whatsapp-web.js');
 
-// Must line up with the Chromium actually shipped in the image (120, Debian).
+// The User-Agent must line up with the Chromium actually shipped in the image.
 // The library default claims "Macintosh; Intel Mac OS X 10_14_0 ... Chrome/101"
 // — macOS Mojave and a browser from April 2022 — while the engine underneath is
-// Chromium 120 on Linux. Platform, version and age all contradict the real
-// runtime, and every instance we run sends that same string from one IP.
-const DEFAULT_USER_AGENT =
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+// Chromium on Linux. Platform, version and age all contradict the real runtime,
+// and every instance we run sends that same string from one /64. The major is
+// read from the binary at start-up so a Chromium upgrade in the Containerfile
+// cannot leave the header a version behind (it sat at 120 for a year).
+const FALLBACK_CHROME_MAJOR = 120;
+
+function userAgentFor(major) {
+  return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+}
+
+function detectChromeMajor(executablePath) {
+  if (!executablePath) return null;
+  try {
+    const out = execFileSync(executablePath, ['--version'], { encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const m = /(\d+)\.\d+\.\d+\.\d+/.exec(out);
+    return m ? Number(m[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+const DEFAULT_USER_AGENT = userAgentFor(FALLBACK_CHROME_MAJOR);
 
 // wppconnect-team/wa-version mirrors released WhatsApp Web builds as HTML.
 const WA_VERSION_MIRROR = 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html';
@@ -92,10 +111,17 @@ function createClient({
   backupSyncIntervalMs = 60000,
   executablePath,
   waWebVersion = '',
-  userAgent = DEFAULT_USER_AGENT,
+  userAgent,
   canBackup,
   logger,
+  evalOnNewDoc,
 }) {
+  const chromePath = executablePath || process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (!userAgent) {
+    const major = detectChromeMajor(chromePath);
+    userAgent = userAgentFor(major || FALLBACK_CHROME_MAJOR);
+    (logger || console).info?.({ chromeMajor: major, userAgent }, major ? 'user agent from Chromium binary' : 'Chromium version unknown — fallback user agent');
+  }
   const authStrategy = new ResilientRemoteAuth({
     store,
     clientId: String(idInstance),
@@ -132,11 +158,14 @@ function createClient({
       '--disable-blink-features=AutomationControlled',
     ],
   };
-  if (executablePath || process.env.PUPPETEER_EXECUTABLE_PATH) {
-    puppeteer.executablePath = executablePath || process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (chromePath) {
+    puppeteer.executablePath = chromePath;
   }
 
   const options = { authStrategy, puppeteer, userAgent };
+  // Runs at every document start (page.evaluateOnNewDocument), so it survives the
+  // SPA navigations WhatsApp Web performs after login. Used by PageForensics.
+  if (typeof evalOnNewDoc === 'function') options.evalOnNewDoc = evalOnNewDoc;
 
   // Pinning the web build is opt-in: an unreachable or wrong version would leave
   // the client unable to load WhatsApp at all, so an empty setting keeps the
@@ -152,4 +181,4 @@ function createClient({
   return new Client(options);
 }
 
-module.exports = { createClient, copyTreeTolerant, ResilientRemoteAuth };
+module.exports = { createClient, copyTreeTolerant, ResilientRemoteAuth, detectChromeMajor, userAgentFor, DEFAULT_USER_AGENT };

@@ -16,6 +16,7 @@ const WebhookSender = require('./lib/WebhookSender');
 const GreenApiMapper = require('./lib/GreenApiMapper');
 const Heartbeat = require('./lib/Heartbeat');
 const { QrIdleReaper } = require('./lib/QrIdleReaper');
+const { PageForensics } = require('./lib/PageForensics');
 const { createClient } = require('./client');
 const { mountRoutes } = require('./routes');
 
@@ -114,6 +115,18 @@ async function main() {
   const qrWatch = { streak: 0 }; // consecutive QRs without ready -> dead-session watchdog
   const outgoingApiIds = new Set();
 
+  // 5b. Flight recorder for the page. Fresh pairings die with a bare LOGOUT
+  // minutes after the scan; the reason is only visible inside WhatsApp Web
+  // (console, socket/stream state, Cmd.logout arguments, what the UI showed).
+  const forensics = new PageForensics({
+    idInstance: config.idInstance,
+    db,
+    logger,
+    windowMs: config.forensicsWindowMs,
+    shotIntervalMs: config.forensicsShotIntervalMs,
+  });
+  await forensics.ensureIndexes().catch((err) => logger.warn({ err: err.message }, 'forensics: ensureIndexes failed'));
+
   // 6. WhatsApp client
   function spawnClient() {
     return createClient({
@@ -121,6 +134,7 @@ async function main() {
       idInstance: config.idInstance,
       backupSyncIntervalMs: config.backupIntervalMs,
       waWebVersion: config.waWebVersion,
+      evalOnNewDoc: PageForensics.pageHooks,
       // Only a paired client has a session worth storing. Without this gate a
       // backup taken between pairings writes an empty archive, and an empty
       // archive is what onQR's watchdog mistakes for a dead session to reset.
@@ -134,7 +148,7 @@ async function main() {
     config, logger, db, adminClient, adminConfig, webhookSender, mapper,
     mediaStore, messageStore,
     qrCache, codeCache, outgoingApiIds, state,
-    store, qrWatch,
+    store, qrWatch, forensics,
     get client() { return client; },
     rebootClient, resetSession, localSessionExists,
   };
@@ -148,6 +162,7 @@ async function main() {
 
   attachEvents();
   await client.initialize().catch((err) => logger.error({ err: err.message }, 'client.initialize failed'));
+  forensics.attach(client.pupPage);
 
   // 7. HTTP server
   const app = express();
@@ -283,8 +298,8 @@ async function main() {
     ctx.handleReady = handleReady; // heartbeat достраивает пропущенный 'ready'
     client.on('qr', (qr) => { qrReaper.noteQr(); return handleQr(qr); });
     client.on('code', onCode(ctx));
-    client.on('ready', (...args) => { qrReaper.noteScanned(); return handleReady(...args); });
-    client.on('authenticated', () => { qrReaper.noteScanned(); logger.info('client authenticated'); });
+    client.on('ready', (...args) => { qrReaper.noteScanned(); forensics.markPaired('ready'); return handleReady(...args); });
+    client.on('authenticated', () => { qrReaper.noteScanned(); forensics.markPaired('authenticated'); logger.info('client authenticated'); });
     client.on('auth_failure', onAuthFailure(ctx));
     client.on('disconnected', onDisconnected(ctx));
     client.on('message', onMessage(ctx));
@@ -342,6 +357,7 @@ async function main() {
   // Kill the interval and the listeners explicitly, never trusting destroy().
   async function disposeClient(prev, tag) {
     if (!prev) return;
+    forensics.detach();
     try { await prev.destroy(); }
     catch (err) { logger.warn({ err: err.message }, tag + ': destroy failed'); }
     try { await prev.authStrategy?.destroy?.(); }
@@ -375,6 +391,7 @@ async function main() {
     client = spawnClient();
     attachEvents();
     try { await client.initialize(); } catch (err) { logger.error({ err: err.message }, 'resetSession: re-initialize failed'); }
+    forensics.attach(client.pupPage);
   }
 
   async function rebootClient(reason) {
@@ -390,6 +407,7 @@ async function main() {
     } catch (err) {
       logger.error({ err: err.message }, 'reboot: re-initialize failed');
     }
+    forensics.attach(client.pupPage);
   }
 }
 

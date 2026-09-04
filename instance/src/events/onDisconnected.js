@@ -15,6 +15,12 @@ module.exports = (ctx) => async (reason) => {
   // which whatsapp-web.js reconnects on its own).
   const r = String(reason || '').toUpperCase();
   if ((r.includes('LOGOUT') || r.includes('UNPAIRED')) && typeof ctx.resetSession === 'function') {
+    // Capture the page BEFORE resetSession destroys it: this is the only moment
+    // the console, socket state and screenshot around the logout still exist.
+    if (ctx.forensics) {
+      try { await ctx.forensics.dump('disconnected:' + reason); }
+      catch (err) { ctx.logger.warn({ err: err.message }, 'onDisconnected: forensics dump failed'); }
+    }
     await ctx.resetSession('disconnected:' + reason);
   }
 };

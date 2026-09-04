@@ -13,6 +13,10 @@ module.exports = (ctx) => async (msg) => {
 
   // auth_failure means the stored session is invalid -> clear it and bring up a fresh QR.
   if (typeof ctx.resetSession === 'function') {
+    if (ctx.forensics) {
+      try { await ctx.forensics.dump('auth_failure:' + msg); }
+      catch (err) { ctx.logger.warn({ err: err.message }, 'onAuthFailure: forensics dump failed'); }
+    }
     await ctx.resetSession('auth_failure');
   }
 };
