@@ -53,7 +53,8 @@ class GreenApiMapper {
     };
     if (msg.author) senderData.senderContactName = msg._data?.verifiedName || '';
 
-    const idMessage = msg.id?._serialized || msg.id?.id || '';
+    // Bare id everywhere: consumers store it as external_id, the media store keys by it.
+    const idMessage = msg.id?.id || msg.id?._serialized || '';
 
     return {
       typeWebhook: 'incomingMessageReceived',
@@ -66,7 +67,7 @@ class GreenApiMapper {
   }
 
   toOutgoingMessageReceived(msg) {
-    const idMessage = msg.id?._serialized || msg.id?.id || '';
+    const idMessage = msg.id?.id || msg.id?._serialized || '';
     return {
       typeWebhook: 'outgoingMessageReceived',
       instanceData: this._instanceData(),

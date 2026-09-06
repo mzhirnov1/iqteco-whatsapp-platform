@@ -36,6 +36,7 @@ const deleteMessage = require('./deleteMessage');
 const archiveChat = require('./archiveChat');
 
 const media = require('./media');
+const downloadFile = require('./downloadFile');
 
 function mountRoutes(app, ctx) {
   const auth = makeAuthMiddleware(ctx.config);
@@ -84,6 +85,8 @@ function mountRoutes(app, ctx) {
 
   // Media file download (Green API совместимый downloadUrl)
   app.get(`${prefix}/media/:token/:messageId`, auth, media(ctx));
+  // On-demand fetch of a message's media into the store (history import, retries)
+  app.post(`${prefix}/downloadFile/:token`, auth, downloadFile(ctx));
 
   // Notifications (push-only)
   app.get(`${prefix}/receiveNotification/:token`, auth, receiveNotification(ctx));

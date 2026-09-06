@@ -1,6 +1,7 @@
 'use strict';
 
 const mimeTypes = require('mime-types');
+const { downloadMessageMedia } = require('../lib/mediaDownload');
 
 function extFromMime(mime) {
   if (!mime) return null;
@@ -41,7 +42,16 @@ module.exports = (ctx) => async (msg) => {
   try {
     if (msg.hasMedia && ctx.mediaStore) {
       try {
-        const media = await msg.downloadMedia();
+        // Tolerant path first: upstream downloadMedia() dies in an IndexedDB lookup
+        // ("r") on LID-era accounts and no incoming media was stored since 01.07.2026.
+        let media = null;
+        const r = await downloadMessageMedia(ctx, { msgId: msg.id?._serialized || msg.id?.id || '', chatId: msg.from || '' });
+        if (r && r.data) {
+          media = { data: r.data, mimetype: r.mimetype, filename: r.filename };
+        } else {
+          ctx.logger.warn({ id: msg.id?.id, error: r && r.error, steps: r && r.steps }, 'onMessage: tolerant media download failed, trying upstream');
+          media = await msg.downloadMedia();
+        }
         if (media?.data) {
           const buffer = Buffer.from(media.data, 'base64');
           if (buffer.length <= ctx.config.mediaMaxBytes) {
@@ -54,8 +64,9 @@ module.exports = (ctx) => async (msg) => {
               if (!msg._data.filename) msg._data.filename = filename;
               if (!msg._data.mimetype) msg._data.mimetype = media.mimetype;
             } catch { /* ignore */ }
+            // Bare id: the same key the mapper puts into downloadUrl and the /media route resolves.
             await ctx.mediaStore.save({
-              messageId: msg.id?._serialized,
+              messageId: msg.id?.id || msg.id?._serialized,
               buffer,
               mimeType: media.mimetype,
               filename,
