@@ -61,12 +61,20 @@ async function historyPerMessageFallback(ctx, chatId, count) {
 
     const keep = (m) => m && !m.isNotification;
     let msgs = chat.msgs ? chat.msgs.getModelsArray().filter(keep) : [];
+    const diag = { inMemory: msgs.length, attempts: [] };
     let loadError = null;
     let guard = 0;
     while (msgs.length < count && guard++ < 20) {
       let loaded;
       try {
-        loaded = await window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat });
+        const L = window.require('WAWebChatLoadMessages');
+        loaded = await L.loadEarlierMsgs({ chat });
+        diag.attempts.push({ style: 'obj', got: Array.isArray(loaded) ? loaded.length : typeof loaded });
+        if ((!loaded || !loaded.length) && typeof L.loadEarlierMsgs === 'function') {
+          const alt = await L.loadEarlierMsgs(chat);
+          diag.attempts.push({ style: 'plain', got: Array.isArray(alt) ? alt.length : typeof alt });
+          if (alt && alt.length) loaded = alt;
+        }
       } catch (e) {
         loadError = String((e && (e.message || e)) || 'loadEarlierMsgs failed').slice(0, 200);
         break;
@@ -74,23 +82,42 @@ async function historyPerMessageFallback(ctx, chatId, count) {
       if (!loaded || !loaded.length) break;
       msgs = [...loaded.filter(keep), ...msgs];
     }
-
+    diag.afterLoad = msgs.length;
+    // On live models MsgKey._serialized is not an own property (only the
+    // serialized form has it) — build the key the way WA Web does:
+    // `${fromMe}_${remote}_${id}` (+ `_${participant}` in groups).
+    const ser = (v) => {
+      if (!v) return null;
+      if (typeof v === 'string') return v;
+      if (v._serialized) return v._serialized;
+      if (typeof v.toString === 'function') { const t = v.toString(); if (t && t !== '[object Object]') return t; }
+      return null;
+    };
+    const keyOf = (m) => {
+      if (!m || !m.id) return null;
+      const s = ser(m.id);
+      if (s && s.includes('_')) return s;
+      const remote = ser(m.id.remote) || '';
+      const base = String(!!m.id.fromMe) + '_' + remote + '_' + (m.id.id || '');
+      const part = ser(m.id.participant);
+      return part ? base + '_' + part : base;
+    };
     const seen = new Set();
     msgs = msgs.filter((m) => {
-      const k = m && m.id && m.id._serialized;
+      const k = keyOf(m);
       if (!k || seen.has(k)) return false;
       seen.add(k);
       return true;
     });
+    diag.afterDedupe = msgs.length;
     msgs.sort((a, b) => (a.t || 0) - (b.t || 0));
     if (msgs.length > count) msgs = msgs.slice(msgs.length - count);
 
-    const ser = (v) => (typeof v === 'string' ? v : (v && v._serialized) || null);
     const out = [];
     let failed = 0;
     for (const m of msgs) {
       const plain = () => ({
-        id: ser(m.id),
+        id: keyOf(m),
         fromMe: !!(m.id && m.id.fromMe),
         t: m.t || null,
         type: m.type || 'chat',
@@ -102,7 +129,7 @@ async function historyPerMessageFallback(ctx, chatId, count) {
       try {
         const full = window.WWebJS.getMessageModel(m);
         out.push({
-          id: ser(full.id) || ser(m.id),
+          id: ser(full.id) || keyOf(m),
           fromMe: !!((full.id && full.id.fromMe) || (m.id && m.id.fromMe)),
           t: full.t || m.t || null,
           type: full.type || m.type || 'chat',
@@ -112,10 +139,12 @@ async function historyPerMessageFallback(ctx, chatId, count) {
           ack: full.ack ?? m.ack,
         });
       } catch (e) {
-        try { out.push(plain()); } catch (e2) { failed++; }
+        diag.modelErr = diag.modelErr || String(e && (e.message || e)).slice(0, 120);
+        try { out.push(plain()); } catch (e2) { failed++; diag.plainErr = diag.plainErr || String(e2 && e2.message).slice(0, 120); }
       }
     }
-    return { msgs: out, failed, loadError };
+    diag.out = out.length;
+    return { msgs: out, failed, loadError, diag };
   }, chatId, count);
 }
 
@@ -169,7 +198,7 @@ module.exports = (ctx) => async (req, res) => {
       } else {
         out = fromFallback(r, chatId);
         ctx.logger.info(
-          { chatId, count: out.length, failed: r.failed, loadError: r.loadError },
+          { chatId, count: out.length, failed: r.failed, loadError: r.loadError, diag: r.diag },
           'getChatHistory: served by per-message fallback',
         );
       }
