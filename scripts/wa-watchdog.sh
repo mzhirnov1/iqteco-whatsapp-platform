@@ -54,6 +54,9 @@ CHATS_PROBE_EVERY="${WA_WATCHDOG_CHATS_EVERY:-300}"   # deep getChats probe at m
 CHATS_STRIKES="${WA_WATCHDOG_CHATS_STRIKES:-3}"       # consecutive failing probes (~15 min) → degraded
 CHATS_TIMEOUT=30      # deep probe serializes every chat — heavy accounts are slow
 TG_ENV="${WA_WATCHDOG_TG_ENV:-/etc/wa-watchdog-telegram.env}"
+BACKUP_ALERT_BYTES="${WA_WATCHDOG_BACKUP_MAX:-157286400}"  # 150 MB: healthy RemoteAuth zips are 25-60 MB
+BACKUP_MEDIAN_X="${WA_WATCHDOG_BACKUP_MEDIAN_X:-3}"          # or > N x median of running WA containers
+BACKUP_ALERT_EVERY=86400                                     # re-alert per container at most daily
 PODMAN=/usr/bin/podman
 
 mkdir -p "$STATE_DIR"
@@ -123,6 +126,44 @@ instance_token() {      # $1=id → apiToken or empty
     2>/dev/null | tr -d '[:space:]'
 }
 
+# ---- bloated-session detection (WA only) ---------------------------------
+# 06.09.2026: the one WA container whose GridFS backup had grown to 251 MB
+# (peers: 25-60 MB) was the one WhatsApp logged out a minute after a
+# session-preserving recreate. The bloat itself is not fixed here (its cause
+# is still open), but it must be VISIBLE before the next roll, not after.
+# One Mongo round-trip per run for every running wa- id; alert once a day.
+declare -A SESS_SIZE
+SESS_MEDIAN=0
+{
+  ids=$($PODMAN ps --format '{{.Names}}' 2>/dev/null | grep -E '^wa-[0-9]+$' | sed 's/^wa-//' | tr '\n' ' ')
+  if [ -n "$ids" ]; then
+    q=$(printf "'%s'," $ids)
+    while read -r sid ssz; do
+      [ -n "$sid" ] && SESS_SIZE["$sid"]="$ssz"
+    done < <(mongosh --quiet "$MONGO_URI" --eval \
+      "const ids=[${q%,}]; ids.forEach(id=>{const f=db.wa_sessions.files.find({filename:'RemoteAuth-'+id+'.zip'}).sort({uploadDate:-1}).limit(1).toArray()[0]; print(id+' '+(f?f.length:0));})" 2>/dev/null)
+    SESS_MEDIAN=$(for k in "${!SESS_SIZE[@]}"; do v=${SESS_SIZE[$k]}; [ "${v:-0}" -gt 0 ] && echo "$v"; done \
+      | sort -n | awk '{a[NR]=$1} END{n=NR; if(!n){print 0} else if(n%2){print a[(n+1)/2]} else {print int((a[n/2]+a[n/2+1])/2)}}')
+  fi
+}
+backup_size_check() {   # $1=name $2=id — log + alert (daily) when the backup is an outlier
+  local name="$1" id="$2" sz="${SESS_SIZE[$2]:-0}" why="" f
+  case "$sz" in (*[!0-9]*|'') sz=0 ;; esac
+  [ "$sz" -gt 0 ] || return 0
+  if [ "$sz" -gt "$BACKUP_ALERT_BYTES" ]; then
+    why="$((sz/1048576)) MB > cap $((BACKUP_ALERT_BYTES/1048576)) MB"
+  elif [ "${SESS_MEDIAN:-0}" -gt 0 ] && [ "$sz" -gt $((SESS_MEDIAN * BACKUP_MEDIAN_X)) ]; then
+    why="$((sz/1048576)) MB > ${BACKUP_MEDIAN_X}x median $((SESS_MEDIAN/1048576)) MB"
+  fi
+  f="$STATE_DIR/$name.bigbackup_alerted"
+  if [ -z "$why" ]; then rm -f "$f"; return 0; fi
+  if [ ! -f "$f" ] || [ $((now - $(cat "$f" 2>/dev/null || echo 0))) -ge "$BACKUP_ALERT_EVERY" ]; then
+    echo "$now" > "$f"
+    log "$name: session backup bloated ($why) — do NOT roll this one; inspect Default/IndexedDB before it loses the session on restore"
+    tg_alert "$name: session backup bloated ($why). Exclude from rolling updates; a restore of such a profile got 1101008595 logged out on 06.09."
+  fi
+}
+
 # ---- degraded-API detection (WA only) -----------------------------------
 # "authorized" is no health guarantee: the page's chat serialization can
 # break (WA Web build drift, a poisoned chat model) while state and messaging
@@ -187,6 +228,8 @@ while IFS='|' read -r name state; do
   if [ "${started_epoch:-0}" -gt 0 ] && [ $((now - started_epoch)) -lt "$BOOT_GRACE" ]; then
     continue
   fi
+
+  [ "$kind" = "wa" ] && backup_size_check "$name" "$id"
 
   code=$(curl -s -m "$PROBE_TIMEOUT" -o /dev/null -w '%{http_code}' \
          "$API_BASE/waInstance$id/getStateInstance/WATCHDOG_PROBE" 2>/dev/null)
