@@ -14,6 +14,8 @@ final class Logger
 
     public function info(string $msg, array $data = []): void { $this->write('INFO', $msg, $data); }
     public function warn(string $msg, array $data = []): void { $this->write('WARN', $msg, $data); }
+    /** PodmanRunner зовёт warning(); без алиаса удаление инстанса падало на таймауте podman stop. */
+    public function warning(string $msg, array $data = []): void { $this->warn($msg, $data); }
     public function error(string $msg, array $data = []): void { $this->write('ERROR', $msg, $data); }
     public function debug(string $msg, array $data = []): void { $this->write('DEBUG', $msg, $data); }
 
