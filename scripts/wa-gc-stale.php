@@ -77,7 +77,15 @@ foreach ($cursor as $inst) {
     $id = (string)$inst['idInstance'];
     $host = (string)(parse_url((string)($inst['webhookUrl'] ?? ''), PHP_URL_HOST) ?? '');
     $paired = trim((string)($inst['phoneNumber'] ?? '')) !== '' || trim((string)($inst['wid'] ?? '')) !== '';
-    $createdAt = $inst['createdAt'] ?? null;
+    // Возраст инстанса — от последнего «рождения», а не от createdAt контейнера:
+    // тёплый пул создаёт контейнеры заранее (партия 03.08), а выдаёт их
+    // регистрации через недели — claimedAt/registeredAt. По createdAt 13.09 R1
+    // снёс 37 инстансов, выданных за последние 7 дней (12 — за 3 дня).
+    $createdAt = null;
+    foreach (['createdAt', 'claimedAt', 'registeredAt'] as $k) {
+        $v = $inst[$k] ?? null;
+        if ($v instanceof UTCDateTime && ($createdAt === null || $v > $createdAt)) $createdAt = $v;
+    }
     $lastSeen  = $inst['lastSeen'] ?? null;
 
     if (!in_array($host, $hosts, true)) {
