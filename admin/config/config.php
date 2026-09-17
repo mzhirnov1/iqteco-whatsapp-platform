@@ -60,7 +60,7 @@ return [
     'ip_pool' => [
         'prefix' => wa_env('IPV6_PREFIX') ?: '2a01:4f8:221:2d8d:c0a8::',
         'subnet_bits' => 80,
-        'reserved_offset' => 1,
+        'reserved_offset' => 2, // ::1 — шлюз сети wa-net, контейнер с ним не стартует
         'reserved_count' => 255,
     ],
     'nginx' => [

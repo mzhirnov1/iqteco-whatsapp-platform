@@ -57,6 +57,27 @@ final class IpPoolManager
     }
 
     /**
+     * Навсегда выводит IPv6 из оборота (status=reserved): allocate() берёт только free,
+     * reclaim() возвращает только quarantine — такой адрес больше не выдастся.
+     * Для адресов, с которыми контейнер не может стартовать в принципе (шлюз сети).
+     */
+    public function reserve(string $ipv6, string $reason): void
+    {
+        $coll = MongoClient::db($this->config)->selectCollection('ip_pool');
+        $coll->updateOne(
+            ['ipv6' => $ipv6],
+            ['$set' => [
+                'status' => 'reserved',
+                'idInstance' => null,
+                'reuseAfter' => null,
+                'reservedReason' => $reason,
+                'reservedAt' => new UTCDateTime(),
+            ]]
+        );
+        $this->logger->warn('IpPoolManager: reserved', ['ipv6' => $ipv6, 'reason' => $reason]);
+    }
+
+    /**
      * Возвращает в free все IPv6 которые отбыли quarantine.
      * Запускается из cron или wa-traffic-poller.
      */

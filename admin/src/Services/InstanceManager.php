@@ -131,7 +131,15 @@ final class InstanceManager
         } catch (\Throwable $e) {
             $this->logger->error('InstanceManager: podman run failed, rolling back', ['err' => $e->getMessage()]);
             MongoClient::db($this->config)->selectCollection('instances')->deleteOne(['idInstance' => $idInstance]);
-            $this->ipPool->release($ipv6);
+            // «netavark: add default route … gw: <ipv6>» — адрес совпал со шлюзом сети
+            // wa-net (…c0a8::1 попал в пул при reserved_offset=1). Контейнер с ним не
+            // поднимется никогда: суточный карантин лишь откладывал следующий сбой
+            // регистрации (29 раз с 02.06.2026), поэтому адрес уходит в резерв.
+            if (str_contains($e->getMessage(), 'add default route')) {
+                $this->ipPool->reserve($ipv6, 'podman run: netavark add default route (network gateway)');
+            } else {
+                $this->ipPool->release($ipv6);
+            }
             $this->nginx->regenerate();
             throw $e;
         }
